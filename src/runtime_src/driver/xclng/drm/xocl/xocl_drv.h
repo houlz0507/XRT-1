@@ -205,6 +205,9 @@ struct xocl_dev_core {
         void *__iomem		intr_bar_addr;
 	resource_size_t		intr_bar_size;
 
+	struct task_struct      *health_thread;
+	struct xocl_health_thread_arg thread_arg;
+
 	struct xocl_board_private priv;
 
 	char			ebuf[XOCL_EBUF_LEN + 1];
@@ -395,8 +398,6 @@ struct xocl_firewall_funcs {
 	int (*get_prop)(struct platform_device *pdev, u32 prop, void *val);
 	int (*clear_firewall)(struct platform_device *pdev);
 	u32 (*check_firewall)(struct platform_device *pdev, int *level);
-	int (*health_check)(struct platform_device *pdev,
-		int (*cb)(void *data), void *cb_arg, u32 interval);
 };
 #define AF_DEV(xdev)	\
 	SUBDEV(xdev, XOCL_SUBDEV_AF).pldev
@@ -410,9 +411,6 @@ struct xocl_firewall_funcs {
 	(AF_DEV(xdev) ? AF_OPS(xdev)->check_firewall(AF_DEV(xdev), level) : 0)
 #define	xocl_af_clear(xdev)				\
 	(AF_DEV(xdev) ? AF_OPS(xdev)->clear_firewall(AF_DEV(xdev)) : -ENODEV)
-#define xocl_af_start_health_check(xdev, cb, cb_arg, interval)	\
-	(AF_DEV(xdev) ? AF_OPS(xdev)->health_check(AF_DEV(xdev), cb, cb_arg, \
-	interval) : -ENODEV)
 
 /* microblaze callbacks */
 struct xocl_mb_funcs {
@@ -612,9 +610,8 @@ int xocl_ctx_traverse(struct xocl_context_hash *ctx_hash,
 	int (*cb_func)(struct xocl_context_hash *ctx_hash, void *arg));
 
 /* health thread functions */
-int health_thread_init(struct device *dev, char *thread_name,
-	struct xocl_health_thread_arg *arg, struct task_struct **pthread);
-void health_thread_fini(struct device *dev, struct task_struct *pthread);
+int health_thread_start(xdev_handle_t xdev);
+int health_thread_stop(xdev_handle_t xdev);
 
 /* init functions */
 int __init xocl_init_drv_user_xdma(void);

@@ -134,6 +134,11 @@ struct icap {
 	char                    *icap_clock_freq_topology;
 	unsigned long		icap_clock_freq_topology_length;
 	char                    *icap_clock_freq_counter;
+
+#ifdef SYSFS_DEBUG
+	char			*bit_buffer;
+	unsigned long		bit_length;
+#endif
 };
 
 static inline u32 reg_rd(void __iomem *reg)
@@ -2168,6 +2173,85 @@ static ssize_t clock_freqs_show(struct device *dev,
 }
 static DEVICE_ATTR_RO(clock_freqs);
 
+#ifdef SYSFS_DEBUG
+static ssize_t icap_data_write(struct file *filp, struct kobject *kobj,
+	struct bin_attribute *attr, char *buffer, loff_t off, size_t count)
+{
+	XHwIcap_Bit_Header bit_header = { 0 };
+	struct device *dev = container_of(kobj, struct device, kobj);
+	struct icap *icap = platform_get_drvdata(to_platform_device(dev));
+	xdev_handle_t xdev = xocl_get_xdev(icap->icap_pdev);
+	ssize_t ret = count;
+
+	if (off == 0) {
+		if (count < DMA_HWICAP_BITFILE_BUFFER_SIZE) {
+			ICAP_ERR(icap, "count is too small %ld", count);
+			return -EINVAL;
+		}
+
+		if (bitstream_parse_header(icap, buffer,
+			DMA_HWICAP_BITFILE_BUFFER_SIZE, &bit_header)) {
+			ICAP_ERR(icap, "parse header failed");
+			return -EINVAL;
+		}
+
+		icap->bit_length = bit_header.HeaderLength +
+			bit_header.BitstreamLength;
+		icap->bit_buffer = vmalloc(icap->bit_length);
+	}
+
+	if (off + count >= icap->bit_length) {
+		/*
+ 		 * TODO:
+ 		 * Need to Suspend mgmtpf/userpf and uninstall subdevices
+		 */
+		memcpy(icap->bit_buffer + off, buffer, icap->bit_length - off);
+		ret = health_thread_stop(xdev);
+		if (ret) {
+			ICAP_ERR(icap, "stop health thread failed");
+			goto failed;
+		}
+		icap_freeze_axi_gate(icap); 
+		ret = icap_download(icap, icap->bit_buffer, icap->bit_length);
+		if (ret) {
+			ICAP_ERR(icap, "bitstream download failed");
+			ret = -EIO;
+		}
+		icap_free_axi_gate(icap); 
+		ret = health_thread_start(xdev);
+		if (ret) {
+			ICAP_ERR(icap, "restart health thread failed");
+		}
+		vfree(icap->bit_buffer);
+		icap->bit_buffer = NULL;
+	} else {
+		memcpy(icap->bit_buffer + off, buffer, count);
+	}
+
+failed:
+	return ret;
+}
+
+static struct bin_attribute bit_program_attr = {
+	.attr = {
+		.name = "bit_program",
+		.mode = 0200
+	},
+	.read = NULL,
+	.write = icap_data_write,
+	.size = 0
+};
+
+static struct bin_attribute *icap_bin_attrs[] = {
+	&bit_program_attr,
+	NULL,
+};
+
+static struct attribute_group icap_debug_attr_group = {
+	.bin_attrs = icap_bin_attrs,
+};
+#endif
+
 static ssize_t idcode_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
@@ -2197,6 +2281,14 @@ static int icap_remove(struct platform_device *pdev)
 
 	del_all_users(icap);
 	xocl_subdev_register(pdev, XOCL_SUBDEV_ICAP, NULL);
+
+#ifdef SYSFS_DEBUG
+	if (ICAP_PRIVILEGED(icap))
+		sysfs_remove_group(&pdev->dev.kobj, &icap_debug_attr_group);
+
+	if (icap->bit_buffer)
+		vfree(icap->bit_buffer);
+#endif
 
 	iounmap(icap->icap_regs);
 	iounmap(icap->icap_state);
@@ -2323,6 +2415,17 @@ static int icap_probe(struct platform_device *pdev)
 		ICAP_ERR(icap, "create icap attrs failed: %d", ret);
 		goto failed;
 	}
+
+#ifdef SYSFS_DEBUG
+	if (ICAP_PRIVILEGED(icap)) {
+		ret = sysfs_create_group(&pdev->dev.kobj,
+			&icap_debug_attr_group);
+		if (ret) {
+			ICAP_ERR(icap, "create icap attrs failed: %d", ret);
+			goto failed;
+		}
+	}
+#endif
 
 	icap_probe_chip(icap);
 	ICAP_INFO(icap, "successfully initialized FPGA IDCODE 0x%x", icap->idcode);
