@@ -785,3 +785,50 @@ void reset_notify_client_ctx(struct xocl_dev *xdev)
 	atomic_set(&xdev->needs_reset,0);
 	wmb();
 }
+
+int xocl_p2p_enable_ioctl(struct drm_device *dev,
+			  void *data,
+			  struct drm_file *filp)
+{
+	struct xocl_dev *xdev = dev->dev_private;
+	struct pci_dev *pdev = xdev->core.pdev;
+	resource_size_t old;
+	int ret, p2p_bar, enable;
+	u32 size;
+
+	enable = ((struct drm_xocl_p2p_enable *)data)->enable;
+
+	p2p_bar = xocl_get_p2p_bar(xdev);
+	if (p2p_bar < 0) {
+		xocl_err(&pdev->dev, "p2p bar is not configurable");
+		ret = -EINVAL;
+		goto failed;
+	}
+
+	size = enable ? (ffs(xocl_get_ddr_channel_size(xdev) * 4 * 1024) - 1) :
+		(XOCL_PA_SECTION_SHIFT - 20);
+
+	old = pci_resource_len(pdev, p2p_bar);
+
+	xocl_info(&pdev->dev, "Resize p2p bar %d to %d M ", p2p_bar,
+			(1 << size));
+	xocl_p2p_mem_release(xdev);
+
+	ret = xocl_pci_resize_resource(pdev, p2p_bar, size);
+	if (ret) {
+		xocl_err(&pdev->dev, "Failed to resize p2p BAR %d", ret);
+		goto failed;
+	}
+
+	xdev->bypass_bar_idx = p2p_bar;
+	xdev->bypass_bar_len = pci_resource_len(pdev, p2p_bar);
+
+	ret = xocl_p2p_mem_reserve(xdev);
+	if (ret) {
+		xocl_err(&pdev->dev, "Failed to reserve p2p memory %d", ret);
+	}
+
+
+failed:
+	return ret;
+}

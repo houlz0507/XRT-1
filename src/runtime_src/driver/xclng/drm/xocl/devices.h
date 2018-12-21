@@ -60,8 +60,6 @@ struct xocl_board_private {
         uint64_t		flags;
         struct xocl_subdev_info	*subdev_info;
         uint32_t		subdev_num;
-        uint32_t		user_bar;
-        uint32_t		intr_bar;
         uint32_t		dsa_ver;
         bool			xpr;
         char			*flash_type; /* used by xbflash */
@@ -577,8 +575,6 @@ enum subdev_id {
 		.flags		= XOCL_DSAFLAG_MB_SCHE_OFF,		\
 		.subdev_info	= USER_RES_QDMA,			\
 		.subdev_num = ARRAY_SIZE(USER_RES_QDMA),		\
-		.user_bar = 2,						\
-		.intr_bar = 1,						\
 		.flash_type = FLASH_TYPE_SPI				\
 	}
 
@@ -622,8 +618,6 @@ enum subdev_id {
 		.flags		= XOCL_DSAFLAG_MB_SCHE_OFF,		\
 		.subdev_info	= USER_RES_XDMA_DSA50,			\
 		.subdev_num = ARRAY_SIZE(USER_RES_XDMA_DSA50),		\
-		.user_bar = 0,						\
-		.intr_bar = 1,						\
 	}
 
 #define	XOCL_BOARD_USER_XDMA						\
@@ -631,8 +625,6 @@ enum subdev_id {
 		.flags		= 0,					\
 		.subdev_info	= USER_RES_XDMA,			\
 		.subdev_num = ARRAY_SIZE(USER_RES_XDMA),		\
-		.user_bar = 0,						\
-		.intr_bar = 1,						\
 	}
 
 #define	XOCL_BOARD_USER_XDMA_ERT_OFF					\
@@ -640,8 +632,6 @@ enum subdev_id {
 		.flags		= XOCL_DSAFLAG_MB_SCHE_OFF,		\
 		.subdev_info	= USER_RES_XDMA,			\
 		.subdev_num = ARRAY_SIZE(USER_RES_XDMA),		\
-		.user_bar = 0,						\
-		.intr_bar = 1,						\
 	}
 
 #define XOCL_BOARD_USER_AWS                         \
@@ -649,8 +639,6 @@ enum subdev_id {
        .flags      = 0,                    \
        .subdev_info    = USER_RES_AWS,         \
        .subdev_num = ARRAY_SIZE(USER_RES_AWS),     \
-       .user_bar = 0,                      \
-       .intr_bar = 1,                      \
    }
 
 #define	XOCL_BOARD_USER_DSA52						\
@@ -658,8 +646,6 @@ enum subdev_id {
 		.flags		= 0,					\
 		.subdev_info	= USER_RES_DSA52,			\
 		.subdev_num = ARRAY_SIZE(USER_RES_DSA52),		\
-		.user_bar = 0,						\
-		.intr_bar = 1,						\
 	}
 
 /* mgmt pf defines */
@@ -691,8 +677,6 @@ enum subdev_id {
 		.flags		= 0,					\
 		.subdev_info	= MGMT_RES_DEFAULT,			\
 		.subdev_num = ARRAY_SIZE(MGMT_RES_DEFAULT),		\
-		.user_bar = 0,						\
-		.intr_bar = 1,						\
 	}
 
 #define	XOCL_BOARD_MGMT_DSA50						\
@@ -702,8 +686,6 @@ enum subdev_id {
 			XOCL_DSAFLAG_MB_SCHE_OFF,			\
 		.subdev_info	= MGMT_RES_DSA50,			\
 		.subdev_num = ARRAY_SIZE(MGMT_RES_DSA50),		\
-		.user_bar = 0,						\
-		.intr_bar = 1,						\
 	}
 
 #define	MGMT_RES_6A8F							\
@@ -743,8 +725,6 @@ enum subdev_id {
 		.flags		= 0,					\
 		.subdev_info	= MGMT_RES_6A8F,			\
 		.subdev_num = ARRAY_SIZE(MGMT_RES_6A8F),		\
-		.user_bar = 0,						\
-		.intr_bar = 1,						\
 	}
 
 #define	XOCL_BOARD_MGMT_XBB_DSA51						\
@@ -752,8 +732,6 @@ enum subdev_id {
 		.flags		= 0,					\
 		.subdev_info	= MGMT_RES_XBB_DSA51,			\
 		.subdev_num = ARRAY_SIZE(MGMT_RES_XBB_DSA51),		\
-		.user_bar = 0,						\
-		.intr_bar = 1,						\
 		.flash_type = FLASH_TYPE_SPI,				\
 	}
 
@@ -766,8 +744,6 @@ enum subdev_id {
 		.flags		= 0,					\
 		.subdev_info	= MGMT_RES_6A8F_DSA50,			\
 		.subdev_num = ARRAY_SIZE(MGMT_RES_6A8F_DSA50),		\
-		.user_bar = 0,						\
-		.intr_bar = 1,						\
 	}
 
 #define	MGMT_RES_QDMA							\
@@ -786,8 +762,6 @@ enum subdev_id {
 		.flags		= 0,					\
 		.subdev_info	= MGMT_RES_QDMA,			\
 		.subdev_num = ARRAY_SIZE(MGMT_RES_QDMA),		\
-		.user_bar = 2,						\
-		.intr_bar = 1,						\
 	}
 
 #define	XOCL_BOARD_MGMT_6B0F		XOCL_BOARD_MGMT_6A8F
@@ -808,17 +782,6 @@ enum subdev_id {
 		.flags		= 0,					\
 		.subdev_info	= MGMT_RES_6A8F_DSA52,			\
 		.subdev_num = ARRAY_SIZE(MGMT_RES_6A8F_DSA52),		\
-		.user_bar = 0,						\
-		.intr_bar = 1,						\
-	}
-
-#define	XOCL_BOARD_MGMT_6A8F_DSA52_64					\
-	(struct xocl_board_private){					\
-		.flags		= 0,					\
-		.subdev_info	= MGMT_RES_6A8F_DSA52,			\
-		.subdev_num = ARRAY_SIZE(MGMT_RES_6A8F_DSA52),		\
-		.user_bar = 0,						\
-		.intr_bar = 2,						\
 	}
 
 #define	MGMT_RES_XBB_DSA52						\
@@ -837,18 +800,6 @@ enum subdev_id {
 		.flags		= 0,					\
 		.subdev_info	= MGMT_RES_XBB_DSA52,			\
 		.subdev_num = ARRAY_SIZE(MGMT_RES_XBB_DSA52),		\
-		.user_bar = 0,						\
-		.intr_bar = 1,						\
-		.flash_type = FLASH_TYPE_SPI,				\
-	}
-
-#define	XOCL_BOARD_MGMT_XBB_DSA52_64					\
-	(struct xocl_board_private){					\
-		.flags		= 0,					\
-		.subdev_info	= MGMT_RES_XBB_DSA52,			\
-		.subdev_num = ARRAY_SIZE(MGMT_RES_XBB_DSA52),		\
-		.user_bar = 0,						\
-		.intr_bar = 2,						\
 		.flash_type = FLASH_TYPE_SPI,				\
 	}
 
@@ -869,8 +820,6 @@ enum subdev_id {
 		.flags		= 0,					\
 		.subdev_info	= MGMT_RES_6E8F_DSA52,			\
 		.subdev_num = ARRAY_SIZE(MGMT_RES_6E8F_DSA52),		\
-		.user_bar = 0,						\
-		.intr_bar = 1,						\
 	}
 
 #define MGMT_RES_MPSOC							\
@@ -887,8 +836,6 @@ enum subdev_id {
 		.flags		= 0,					\
 		.subdev_info	= MGMT_RES_MPSOC,			\
 		.subdev_num = ARRAY_SIZE(MGMT_RES_MPSOC),		\
-		.user_bar = 0,						\
-		.intr_bar = 1,						\
 		.mpsoc = true,						\
 	}
 
@@ -897,8 +844,6 @@ enum subdev_id {
 		.flags		= 0,					\
 		.subdev_info	= USER_RES_XDMA,			\
 		.subdev_num = ARRAY_SIZE(USER_RES_XDMA),		\
-		.user_bar = 0,						\
-		.intr_bar = 1,						\
 		.mpsoc = true,						\
 	}
 
@@ -906,7 +851,6 @@ enum subdev_id {
 #define	XOCL_BOARD_XBB_MFG(board)					\
 	(struct xocl_board_private){					\
 		.flags = XOCL_DSAFLAG_MFG,				\
-		.user_bar = 0,						\
 		.board_name = board,					\
 		.flash_type = FLASH_TYPE_SPI,				\
 	}
@@ -987,10 +931,6 @@ enum subdev_id {
 #define XOCL_DSA_VBNV_MAP						\
 	{ 0x10EE, 0x5001, PCI_ANY_ID, "xilinx_u200_xdma_201820_1",	\
 		&XOCL_BOARD_USER_XDMA },				\
-	{ 0x10EE, 0x5000, PCI_ANY_ID, "xilinx_u200_xdma_201830_2",	\
-		&XOCL_BOARD_MGMT_XBB_DSA52_64 },			\
-	{ 0x10EE, 0x6A8F, 0x4353, "xilinx_vcu1525_xdma_201830_2",	\
-		&XOCL_BOARD_MGMT_6A8F_DSA52_64 },			\
 	{ 0x10EE, 0x5000, PCI_ANY_ID, "xilinx_u200_xdma_201820_1",	\
 		&XOCL_BOARD_MGMT_XBB_DSA51 }
 
