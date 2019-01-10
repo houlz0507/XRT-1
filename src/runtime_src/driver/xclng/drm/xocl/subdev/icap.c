@@ -76,7 +76,7 @@ typedef struct {
 /* The imaginary module length register */
 #define XHI_MLR			15
 
-#define	GATE_FREEZE_USER	0xc0
+#define	GATE_FREEZE_USER	0x0c
 #define GATE_FREEZE_SHELL	0x00
 
 #define GATE_FREE_STEPS		4
