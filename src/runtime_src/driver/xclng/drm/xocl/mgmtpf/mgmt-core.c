@@ -43,7 +43,7 @@ module_param(health_interval, int, (S_IRUGO|S_IWUSR));
 MODULE_PARM_DESC(health_interval,
 	"Interval (in sec) after which the health thread is run. (1 = Minimum, 5 = default)");
 
-int health_check = 1;
+int health_check = 0;
 module_param(health_check, int, (S_IRUGO|S_IWUSR));
 MODULE_PARM_DESC(health_check,
 	"Enable health thread that checks the status of AXI Firewall and SYSMON. (0 = disable, 1 = enable)");
