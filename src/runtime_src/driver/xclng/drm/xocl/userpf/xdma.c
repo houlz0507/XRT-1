@@ -90,7 +90,7 @@ int xocl_user_xdma_probe(struct pci_dev *pdev,
 	u32 channel = 0;
 	int ret;
 
-	xd = kzalloc(sizeof(*xd), GFP_KERNEL);
+	xd = xocl_drvinst_alloc(sizeof(*xd));
 	if (!xd) {
 		xocl_err(&pdev->dev, "failed to alloc xocl_dev");
 		return -ENOMEM;
@@ -178,8 +178,6 @@ int xocl_user_xdma_probe(struct pci_dev *pdev,
 
 	(void) xocl_icap_unlock_bitstream(xd, NULL, 0);
 
-	xocl_core_init(ocl_dev, NULL);
-
 	return 0;
 
 failed_sysfs_init:
@@ -195,8 +193,8 @@ failed:
 failed_alloc_minor:
 	if (ocl_dev->user_msix_table)
 		devm_kfree(&pdev->dev, ocl_dev->user_msix_table);
-	kfree(xd);
 	pci_set_drvdata(pdev, NULL);
+	xocl_drvinst_free(xd);
 	return ret;
 }
 
@@ -223,8 +221,7 @@ void xocl_user_xdma_remove(struct pci_dev *pdev)
 	xocl_free_dev_minor(&xd->ocl_dev);
 
 	pci_set_drvdata(pdev, NULL);
-
-	xocl_core_fini(xd);
+	xocl_drvinst_free(xd);
 }
 
 static pci_ers_result_t user_pci_error_detected(struct pci_dev *pdev,

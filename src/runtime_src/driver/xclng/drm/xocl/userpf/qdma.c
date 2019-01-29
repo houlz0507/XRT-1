@@ -102,7 +102,7 @@ static int xocl_user_qdma_probe(struct pci_dev *pdev,
 	struct xocl_board_private	*dev_info;
 	int ret = 0;
 
-	qd = devm_kzalloc(&pdev->dev, sizeof (*qd), GFP_KERNEL);
+	qd = xocl_drvinst_alloc(sizeof (*qd));
 	if (!qd) {
 		xocl_err(&pdev->dev, "failed to alloc xocl_dev");
 		return -ENOMEM;
@@ -187,8 +187,6 @@ static int xocl_user_qdma_probe(struct pci_dev *pdev,
 
 	(void) xocl_icap_unlock_bitstream(qd, NULL, 0);
 
-	xocl_core_init(ocl_dev, NULL);
-
 	return 0;
 
 failed_sysfs_init:
@@ -207,8 +205,8 @@ failed_open_dev:
 failed:
 	if (ocl_dev->user_msix_table)
 		devm_kfree(&pdev->dev, ocl_dev->user_msix_table);
-	devm_kfree(&pdev->dev, qd);
 	pci_set_drvdata(pdev, NULL);
+	xocl_drvinst_free(qd);
 	return ret;
 }
 
@@ -238,7 +236,7 @@ void xocl_user_qdma_remove(struct pci_dev *pdev)
 
 	pci_set_drvdata(pdev, NULL);
 
-	xocl_core_fini(qd);
+	xocl_drvinst_free(qd);
 }
 
 static pci_ers_result_t user_pci_error_detected(struct pci_dev *pdev,

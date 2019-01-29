@@ -198,6 +198,14 @@ struct xocl_health_thread_arg {
 	struct device	*dev;
 };
 
+struct xocl_drvinst {
+	u32			size;
+	atomic_t		ref;
+	struct completion	comp;
+	void			*file_dev;
+	char			data[1];
+};
+
 struct xocl_dev_core {
 	struct pci_dev		*pdev;
 	int			dev_minor;
@@ -632,12 +640,14 @@ int xocl_ctx_add(struct xocl_context_hash *ctx_hash, void *arg, u32 arg_sz);
 int xocl_ctx_traverse(struct xocl_context_hash *ctx_hash,
 	int (*cb_func)(struct xocl_context_hash *ctx_hash, void *arg));
 
-void xocl_core_init(xdev_handle_t xdev_hdl,
-	void (*remove_cb)(xdev_handle_t xdev_hdl));
-void xocl_core_fini(xdev_handle_t xdev_hdl);
-bool xocl_drv_released(xdev_handle_t xdev_hdl);
-void xocl_drv_get(xdev_handle_t xdev_hdl);
-void xocl_drv_put(xdev_handle_t xdev_hdl);
+extern struct mutex xocl_drvinst_mutex;
+extern struct xocl_drvinst *xocl_drvinst_array[XOCL_MAX_DEVICES * 10];
+
+void *xocl_drvinst_alloc(u32 size);
+void xocl_drvinst_free(void *data);
+void *xocl_drvinst_open(void *file_dev);
+void xocl_drvinst_close(void *data);
+void xocl_drvinst_set_filedev(void *data, void *file_dev);
 
 /* health thread functions */
 int health_thread_init(struct device *dev, char *thread_name,

@@ -1037,7 +1037,6 @@ static struct drm_xocl_bo *xocl_is_exporting_xare(struct drm_device *dev, struct
 struct drm_gem_object *xocl_gem_prime_import_sg_table(struct drm_device *dev,
 						      struct dma_buf_attachment *attach, struct sg_table *sgt)
 {
-	struct xocl_dev *xdev = dev->dev_private;
 	int ret = 0;
 	// This is exporting device
 	struct drm_xocl_bo *exporting_xobj;
@@ -1048,9 +1047,6 @@ struct drm_gem_object *xocl_gem_prime_import_sg_table(struct drm_device *dev,
         // ???? add flags to create_bo.. for DDR bank??
 
 	struct drm_xocl_bo *importing_xobj;
-
-	if (xocl_drv_released(xdev))
-		return 0;
 
 	exporting_xobj = xocl_is_exporting_xare(dev, attach);
 	importing_xobj = exporting_xobj ?

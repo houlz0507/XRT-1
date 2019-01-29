@@ -82,7 +82,7 @@ struct stream_queue {
 
 struct str_device {
 	struct platform_device  *pdev;
-	struct cdev		cdev;
+	struct cdev		*cdev;
 	struct device		*sys_device;
 	u32			h2c_ringsz_idx;
 	u32			c2h_ringsz_idx;
@@ -1049,7 +1049,9 @@ static int stream_open(struct inode *inode, struct file *file)
 {
 	struct str_device *sdev;
 
-	sdev = container_of(inode->i_cdev, struct str_device, cdev);
+	sdev = xocl_drvinst_open(inode->i_cdev);
+	if (!sdev)
+		return -ENXIO;
 
 	file->private_data = sdev;
 
@@ -1071,6 +1073,8 @@ static int stream_close(struct inode *inode, struct file *file)
 
 	xocl_info(&sdev->pdev->dev, "Closing file %p by pid: %d",
 		file, pid_nr(task_tgid(current)));
+
+	xocl_drvinst_close(sdev);
 
 	return 0;
 }
@@ -1109,18 +1113,19 @@ static int str_dma_probe(struct platform_device *pdev)
 		goto failed;
 	}
 
-	cdev_init(&sdev->cdev, &stream_fops);
-	sdev->cdev.owner = THIS_MODULE;
+	sdev->cdev = cdev_alloc();
+	sdev->cdev->ops = &stream_fops;
+	sdev->cdev->owner = THIS_MODULE;
 	sdev->instance = XOCL_DEV_ID(xdev->core.pdev);
-	sdev->cdev.dev = MKDEV(MAJOR(str_dev), sdev->instance);
-	ret = cdev_add(&sdev->cdev, sdev->cdev.dev, 1);
+	sdev->cdev->dev = MKDEV(MAJOR(str_dev), sdev->instance);
+	ret = cdev_add(sdev->cdev, sdev->cdev->dev, 1);
 	if (ret) {
 		xocl_err(&pdev->dev, "failed cdev_add, ret=%d", ret);
 		goto failed;
 	}
 
 	sdev->sys_device = device_create(xrt_class, &pdev->dev,
-		sdev->cdev.dev, NULL, "%s%d",
+		sdev->cdev->dev, NULL, "%s%d",
 		platform_get_device_id(pdev)->name,
 		sdev->instance & MINOR_NAME_MASK);
 	if (IS_ERR(sdev->sys_device)) {
@@ -1128,6 +1133,8 @@ static int str_dma_probe(struct platform_device *pdev)
 		xocl_err(&pdev->dev, "failed to create cdev");
 		goto failed_create_cdev;
 	}
+
+	xocl_drvinst_set_filedev(sdev, sdev->cdev);
 
 	sdev->h2c_ringsz_idx = STREAM_DEFAULT_H2C_RINGSZ_IDX;
 	sdev->c2h_ringsz_idx = STREAM_DEFAULT_C2H_RINGSZ_IDX;
@@ -1141,10 +1148,10 @@ static int str_dma_probe(struct platform_device *pdev)
 	return 0;
 
 failed_create_cdev:
-	cdev_del(&sdev->cdev);
+	cdev_del(sdev->cdev);
 failed:
 	if (sdev) {
-		devm_kfree(&pdev->dev, sdev);
+		xocl_drvinst_free(sdev);
 	}
 
 	platform_set_drvdata(pdev, NULL);
@@ -1162,9 +1169,9 @@ static int str_dma_remove(struct platform_device *pdev)
 	}
 
 	if (sdev->sys_device)
-		device_destroy(xrt_class, sdev->cdev.dev);
-	devm_kfree(&pdev->dev, sdev);
+		device_destroy(xrt_class, sdev->cdev->dev);
 	platform_set_drvdata(pdev, NULL);
+	xocl_drvinst_free(sdev);
 
 	return 0;
 }

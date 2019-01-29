@@ -160,46 +160,123 @@ int xocl_ctx_traverse(struct xocl_context_hash *ctx_hash,
 	return ret;
 }
 
-static void xocl_remove_cb(struct kref *kref)
+/*
+ * helper functions to protect driver private data
+ */
+DEFINE_MUTEX(xocl_drvinst_mutex);
+struct xocl_drvinst *xocl_drvinst_array[XOCL_MAX_DEVICES * 10];
+
+void *xocl_drvinst_alloc(u32 size)
 {
-	struct xocl_dev_core *core;
+	struct xocl_drvinst	*drvinstp;
+	int		inst;
 
-	core = container_of(kref, struct xocl_dev_core, kref);
-	if (core->remove_cb)
-		core->remove_cb(core);
+	mutex_lock(&xocl_drvinst_mutex);
+	for (inst = 0; inst < ARRAY_SIZE(xocl_drvinst_array); inst++)
+		if (!xocl_drvinst_array[inst])
+			break;
 
-	kfree(core);
+	if (inst == ARRAY_SIZE(xocl_drvinst_array))
+		goto failed;
+
+	drvinstp = kzalloc(size + sizeof(struct xocl_drvinst), GFP_KERNEL);
+	if (!drvinstp)
+		goto failed;
+
+	drvinstp->size = size;
+	init_completion(&drvinstp->comp);
+	atomic_set(&drvinstp->ref, 1);
+
+	xocl_drvinst_array[inst] = drvinstp;
+
+	mutex_unlock(&xocl_drvinst_mutex);
+
+	return drvinstp->data;
+
+failed:
+	mutex_unlock(&xocl_drvinst_mutex);
+
+	if (drvinstp)
+		kfree(drvinstp);
+	return NULL;
 }
 
-/* functions to deal with driver released and ctx */
-void xocl_core_init(xdev_handle_t xdev_hdl,
-		void (*remove_cb)(xdev_handle_t xdev_hdl))
+void xocl_drvinst_free(void *data)
 {
-	kref_init(&XDEV(xdev_hdl)->kref);
-	kref_get(&XDEV(xdev_hdl)->kref);
+	struct xocl_drvinst	*drvinstp;
+	int		inst;
 
-	XDEV(xdev_hdl)->remove_cb = remove_cb;
+	mutex_lock(&xocl_drvinst_mutex);
+	drvinstp = container_of(data, struct xocl_drvinst, data);
+	for (inst = 0; inst < ARRAY_SIZE(xocl_drvinst_array); inst++) {
+		if (drvinstp == xocl_drvinst_array[inst])
+			break;
+	}
+
+	/* it must be created before */
+	BUG_ON(inst == ARRAY_SIZE(xocl_drvinst_array));
+
+	xocl_drvinst_array[inst] = NULL;
+	mutex_unlock(&xocl_drvinst_mutex);
+
+	/* wait all opened instances to close */
+	if (!atomic_dec_and_test(&drvinstp->ref))
+		wait_for_completion(&drvinstp->comp);
+
+	kfree(drvinstp);
 }
 
-void xocl_core_fini(xdev_handle_t xdev_hdl)
+void xocl_drvinst_set_filedev(void *data, void *file_dev)
 {
-	XDEV(xdev_hdl)->removed = true;
-	kref_put(&XDEV(xdev_hdl)->kref, xocl_remove_cb);
+	struct xocl_drvinst	*drvinstp;
+	int		inst;
+
+	mutex_lock(&xocl_drvinst_mutex);
+	drvinstp = container_of(data, struct xocl_drvinst, data);
+	for (inst = 0; inst < ARRAY_SIZE(xocl_drvinst_array); inst++) {
+		if (drvinstp == xocl_drvinst_array[inst])
+			break;
+	}
+
+	BUG_ON(inst == ARRAY_SIZE(xocl_drvinst_array));
+
+	drvinstp->file_dev = file_dev;
+	mutex_unlock(&xocl_drvinst_mutex);
 }
 
-bool xocl_drv_released(xdev_handle_t xdev_hdl)
+void *xocl_drvinst_open(void *file_dev)
 {
-	return XDEV(xdev_hdl)->removed;
+	struct xocl_drvinst	*drvinstp;
+	int		inst;
+
+	mutex_lock(&xocl_drvinst_mutex);
+	for (inst = 0; inst < ARRAY_SIZE(xocl_drvinst_array); inst++) {
+		drvinstp = xocl_drvinst_array[inst];
+		if (drvinstp && file_dev == drvinstp->file_dev)
+			break;
+	}
+
+	if (inst == ARRAY_SIZE(xocl_drvinst_array)) {
+		mutex_unlock(&xocl_drvinst_mutex);
+		return NULL;
+	}
+
+	atomic_inc(&drvinstp->ref);
+
+	mutex_unlock(&xocl_drvinst_mutex);
+
+	return drvinstp->data;
 }
 
-void xocl_drv_get(xdev_handle_t xdev_hdl)
+void xocl_drvinst_close(void *data)
 {
-	get_device(&XDEV(xdev_hdl)->pdev->dev);
-	kref_get(&XDEV(xdev_hdl)->kref);
-}
+	struct xocl_drvinst	*drvinstp;
 
-void xocl_drv_put(xdev_handle_t xdev_hdl)
-{
-	kref_put(&XDEV(xdev_hdl)->kref, xocl_remove_cb);
-	put_device(&XDEV(xdev_hdl)->pdev->dev);
+	mutex_lock(&xocl_drvinst_mutex);
+	drvinstp = container_of(data, struct xocl_drvinst, data);
+
+	if (atomic_dec_and_test(&drvinstp->ref))
+		complete(&drvinstp->comp);
+
+	mutex_unlock(&xocl_drvinst_mutex);
 }

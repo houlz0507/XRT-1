@@ -69,8 +69,6 @@ static int xocl_mmap(struct file *filp, struct vm_area_struct *vma)
 
 	DRM_ENTER("vm pgoff %lx", vma->vm_pgoff);
 
-	if (xocl_drv_released(xdev))
-		return 0;
 	/*
  	 * If the page offset is > than 4G, then let GEM handle that and do what
  	 * it thinks is best,we will only handle page offsets less than 4G.
@@ -181,10 +179,14 @@ int xocl_gem_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 
 static int xocl_client_open(struct drm_device *dev, struct drm_file *filp)
 {
-	struct xocl_dev	*xdev = dev->dev_private;
+	struct xocl_dev	*xdev;
 	int	ret = 0;
 
 	DRM_ENTER("");
+
+	xdev = xocl_drvinst_open(dev);
+	if (!xdev)
+		return -ENXIO;
 
 	/* We do not allow users to open PRIMARY node, /dev/dri/cardX node.
 	 * Users should only open RENDER, /dev/dri/renderX node */
@@ -200,8 +202,6 @@ static int xocl_client_open(struct drm_device *dev, struct drm_file *filp)
 			goto failed;
 	}
 
-	xocl_drv_get(xdev);
-
 	return 0;
 
 failed:
@@ -214,9 +214,6 @@ static void xocl_client_release(struct drm_device *dev, struct drm_file *filp)
 	struct client_ctx *client = filp->driver_priv;
 	unsigned bit;
 	int pid = pid_nr(task_tgid(current));
-
-	if (xocl_drv_released(xdev))
-		goto end;
 
 	bit = xdev->layout
 		? find_first_bit(client->cu_bitmap,xdev->layout->m_count)
@@ -239,8 +236,8 @@ static void xocl_client_release(struct drm_device *dev, struct drm_file *filp)
 	}
 	bitmap_zero(client->cu_bitmap, MAX_CUS);
 	xocl_exec_destroy_client(xdev, &filp->driver_priv);
-end:
-	xocl_drv_put(xdev);
+
+	xocl_drvinst_close(xdev);
 }
 
 static uint xocl_poll(struct file *filp, poll_table *wait)
@@ -248,9 +245,6 @@ static uint xocl_poll(struct file *filp, poll_table *wait)
 	struct drm_file *priv = filp->private_data;
 	struct drm_device *dev = priv->minor->dev;
 	struct xocl_dev	*xdev = dev->dev_private;
-
-	if (xocl_drv_released(xdev))
-		return 0;
 
 	BUG_ON(!priv->driver_priv);
 
@@ -300,17 +294,7 @@ static const struct drm_ioctl_desc xocl_ioctls[] = {
 static long xocl_drm_ioctl(struct file *filp,
 			      unsigned int cmd, unsigned long arg)
 {
-	struct drm_file *priv = filp->private_data;
-	struct drm_device *dev = priv->minor->dev;
-	struct xocl_dev	*xdev = dev->dev_private;
-	long ret;
-
-	if (xocl_drv_released(xdev))
-		return 0;
-
-	ret = drm_ioctl(filp, cmd, arg);
-
-	return ret;
+	return drm_ioctl(filp, cmd, arg);
 }
 
 static const struct file_operations xocl_driver_fops = {
@@ -524,6 +508,8 @@ int xocl_drm_init(struct xocl_dev *xdev)
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 7, 0)
 	hash_init(xdev->mm_range);
 #endif
+
+	xocl_drvinst_set_filedev(xdev, ddev);
 	return 0;
 
 failed:

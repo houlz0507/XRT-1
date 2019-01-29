@@ -84,7 +84,7 @@ struct xclmgmt_proc_ctx {
 
 struct xclmgmt_char {
 	struct xclmgmt_dev *lro;
-	struct cdev cdev;
+	struct cdev *cdev;
 	struct device *sys_device;
 };
 
