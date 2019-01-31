@@ -86,6 +86,12 @@ struct xclmgmt_char {
 	struct device *sys_device;
 };
 
+struct xclmgmt_data_buf {
+	enum mb_cmd_type cmd_type;
+	uint64_t priv_data;
+	char *data_buf;
+};
+
 struct xclmgmt_dev {
 	struct xocl_dev_core	core;
 	/* MAGIC_DEVICE == 0xAAAAAAAA */
@@ -107,6 +113,8 @@ struct xclmgmt_dev {
 #endif
 	int msix_user_start_vector;
 	bool ready;
+
+	struct xclmgmt_data_buf data_buf;
 };
 
 extern int health_check;

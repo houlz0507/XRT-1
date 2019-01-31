@@ -50,6 +50,8 @@ ifeq ($(DEBUG),1)
 ccflags-y += -DDEBUG
 endif
 
+ccflags-y += -DSYSFS_DEBUG
+
 all:
 	echo $(PWD)
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) modules

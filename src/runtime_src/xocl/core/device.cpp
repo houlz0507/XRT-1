@@ -911,6 +911,7 @@ copy_buffer(memory* src_buffer, memory* dst_buffer, size_t src_offset, size_t ds
 
   sk_cmd->count = offset-1; // number of words in payload (excludes header)
   XOCL_DEBUGF("xocl::device::copy_buffer schedules cdma(%p,%p,%d)\n",dst_addr,src_addr,size);
+  cmd->start();
   xrt::scheduler::schedule(cmd);
 
   // KDMA fills dst buffer same as migrate_buffer does, hence dst buffer
@@ -1108,13 +1109,13 @@ load_program(program* program)
       unsigned short target_freqs[4] = {0};
       auto kclocks = m_xclbin.kernel_clocks();
       if (kclocks.size()>2)
-	throw xocl::error(CL_INVALID_PROGRAM,"Too many kernel clocks");
+        throw xocl::error(CL_INVALID_PROGRAM,"Too many kernel clocks");
       for (auto& clock : kclocks) {
-	if (idx == 0) {
-	  std::string device_name = get_unique_name();
-	  profile::set_kernel_clock_freq(device_name, clock.frequency);
-	}
-	target_freqs[idx++] = clock.frequency;
+        if (idx == 0) {
+          std::string device_name = get_unique_name();
+          profile::set_kernel_clock_freq(device_name, clock.frequency);
+        }
+        target_freqs[idx++] = clock.frequency;
       }
 
       // System clocks
