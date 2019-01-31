@@ -54,6 +54,26 @@ static inline bool uuid_is_null(const xuid_t *uuid)
 }
 #endif
 
+static inline void xocl_memcpy_fromio(void *buf, void *iomem, u32 size)
+{
+	int i;
+
+	BUG_ON(size & 0x3);
+
+        for (i = 0; i < size / 4; i++)
+                ((u32 *)buf)[i] = ioread32((char *)(iomem) + sizeof(u32) * i);
+}
+
+static inline void xocl_memcpy_toio(void *iomem, void *buf, u32 size)
+{
+	int i;
+
+	BUG_ON(size & 0x3);
+
+        for (i = 0; i < size / 4; i++)
+		iowrite32(((u32 *)buf)[i], ((char *)(iomem) + sizeof(u32) * i));
+}
+
 #define	XOCL_DRV_CHANGE		"$Change$"
 #define	XOCL_MODULE_NAME	"xocl"
 #define	XCLMGMT_MODULE_NAME	"xclmgmt"
@@ -80,8 +100,6 @@ static inline bool uuid_is_null(const xuid_t *uuid)
 	ioread32(addr)
 #define	XOCL_WRITE_REG32(val, addr)	\
 	iowrite32(val, addr)
-#define	XOCL_COPY2IO(ioaddr, buf, len)	\
-	memcpy_toio(ioaddr, buf, len)
 
 /* xclbin helpers */
 #define sizeof_sect(sect, data) \
@@ -222,13 +240,12 @@ struct xocl_dev_core {
         void *__iomem		intr_bar_addr;
 	resource_size_t		intr_bar_size;
 
+	struct task_struct      *health_thread;
+	struct xocl_health_thread_arg thread_arg;
+
 	struct xocl_board_private priv;
 
 	char			ebuf[XOCL_EBUF_LEN + 1];
-
-	struct kref		kref;
-	bool			removed;
-	void (*remove_cb)(xdev_handle_t xdev_hdl);
 };
 
 #define	XOCL_DSA_PCI_RESET_OFF(xdev_hdl)			\
@@ -421,8 +438,6 @@ struct xocl_firewall_funcs {
 	int (*get_prop)(struct platform_device *pdev, u32 prop, void *val);
 	int (*clear_firewall)(struct platform_device *pdev);
 	u32 (*check_firewall)(struct platform_device *pdev, int *level);
-	int (*health_check)(struct platform_device *pdev,
-		int (*cb)(void *data), void *cb_arg, u32 interval);
 };
 #define AF_DEV(xdev)	\
 	SUBDEV(xdev, XOCL_SUBDEV_AF).pldev
@@ -436,9 +451,6 @@ struct xocl_firewall_funcs {
 	(AF_DEV(xdev) ? AF_OPS(xdev)->check_firewall(AF_DEV(xdev), level) : 0)
 #define	xocl_af_clear(xdev)				\
 	(AF_DEV(xdev) ? AF_OPS(xdev)->clear_firewall(AF_DEV(xdev)) : -ENODEV)
-#define xocl_af_start_health_check(xdev, cb, cb_arg, interval)	\
-	(AF_DEV(xdev) ? AF_OPS(xdev)->health_check(AF_DEV(xdev), cb, cb_arg, \
-	interval) : -ENODEV)
 
 /* microblaze callbacks */
 struct xocl_mb_funcs {
@@ -650,9 +662,8 @@ void xocl_drvinst_close(void *data);
 void xocl_drvinst_set_filedev(void *data, void *file_dev);
 
 /* health thread functions */
-int health_thread_init(struct device *dev, char *thread_name,
-	struct xocl_health_thread_arg *arg, struct task_struct **pthread);
-void health_thread_fini(struct device *dev, struct task_struct *pthread);
+int health_thread_start(xdev_handle_t xdev);
+int health_thread_stop(xdev_handle_t xdev);
 
 /* init functions */
 int __init xocl_init_drv_user_xdma(void);

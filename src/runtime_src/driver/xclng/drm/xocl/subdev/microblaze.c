@@ -88,9 +88,9 @@ enum {
 	XOCL_READ_REG32(mb->base_addrs[IO_IMAGE_MGMT] + off)
 
 #define	COPY_MGMT(mb, buf, len)		\
-	XOCL_COPY2IO(mb->base_addrs[IO_IMAGE_MGMT], buf, len)
+	xocl_memcpy_toio(mb->base_addrs[IO_IMAGE_MGMT], buf, len)
 #define	COPY_SCHE(mb, buf, len)		\
-	XOCL_COPY2IO(mb->base_addrs[IO_IMAGE_SCHE], buf, len)
+	xocl_memcpy_toio(mb->base_addrs[IO_IMAGE_SCHE], buf, len)
 
 struct xocl_mb {
 	struct platform_device	*pdev;
@@ -608,6 +608,17 @@ static int load_sche_image(struct platform_device *pdev, const char *image,
 
 //Have a function stub but don't actually do anything when this is called
 static int mb_ignore(struct platform_device *pdev) {
+	struct xocl_mb *mb;
+
+	mb = platform_get_drvdata(pdev);
+	if (!mb)
+		return -EINVAL;
+
+	mb_stop(mb);
+	memset(mb->mgmt_binary, 0, mb->mgmt_binary_length);
+        memset(mb->sche_binary, 0, mb->sche_binary_length);
+	mb_start(mb);
+
 	return 0;
 }
 

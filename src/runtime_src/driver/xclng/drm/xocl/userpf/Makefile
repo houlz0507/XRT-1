@@ -51,6 +51,7 @@ ccflags-y += $(XILINXINCLUDE) -DSUBDEV_SUFFIX=USER_SUFFIX
 ifeq ($(DEBUG),1)
 ccflags-y += -DDEBUG
 endif
+ccflags-y += -DSYSFS_DEBUG
 
 all:
 	echo $(PWD)

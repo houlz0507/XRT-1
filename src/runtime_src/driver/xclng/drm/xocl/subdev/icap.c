@@ -76,6 +76,13 @@ typedef struct {
 /* The imaginary module length register */
 #define XHI_MLR			15
 
+#define	GATE_FREEZE_USER	0x0c
+#define GATE_FREEZE_SHELL	0x00
+
+#define GATE_FREE_STEPS		4
+static u32 gate_free_user[GATE_FREE_STEPS] = {0xe, 0xc, 0xe, 0xf};
+static u32 gate_free_shell[GATE_FREE_STEPS] = {0x8, 0xc, 0xe, 0xf};
+
 /*
  * AXI-HWICAP IP register layout
  */
@@ -139,6 +146,10 @@ struct icap {
 	struct debug_ip_layout   *debug_layout;
 	struct connectivity      *connectivity;
 
+#ifdef SYSFS_DEBUG
+	char			*bit_buffer;
+	unsigned long		bit_length;
+#endif
 };
 
 static inline u32 reg_rd(void __iomem *reg)
@@ -500,7 +511,7 @@ static bool icap_bitstream_in_use(struct icap *icap, pid_t pid)
 	return true;
 }
 
-static int icap_freeze_axi_gate(struct icap *icap)
+static int icap_freeze_axi_gate(struct icap *icap, u32 val)
 {
 	xdev_handle_t xdev = xocl_get_xdev(icap->icap_pdev);
 
@@ -508,7 +519,7 @@ static int icap_freeze_axi_gate(struct icap *icap)
 	BUG_ON(icap->icap_axi_gate_frozen);
 
 	(void) reg_rd(&icap->icap_axi_gate->iag_rd);
-	reg_wr(&icap->icap_axi_gate->iag_wr, 0x0);
+	reg_wr(&icap->icap_axi_gate->iag_wr, val);
 	(void) reg_rd(&icap->icap_axi_gate->iag_rd);
 
 	if(!xocl_is_unified(xdev)) {
@@ -531,8 +542,10 @@ static int icap_freeze_axi_gate(struct icap *icap)
 	return 0;
 }
 
-static int icap_free_axi_gate(struct icap *icap)
+static int icap_free_axi_gate(struct icap *icap, u32 *vals)
 {
+	int i;
+
 	ICAP_INFO(icap, "freeing AXI gate");
 	/*
 	 * First pulse the OCL RESET. This is important for PR with multiple
@@ -542,21 +555,12 @@ static int icap_free_axi_gate(struct icap *icap)
 	if (!icap->icap_axi_gate_frozen)
 		return 0;
 
-	(void) reg_rd(&icap->icap_axi_gate->iag_rd);
-	reg_wr(&icap->icap_axi_gate->iag_wr, 0x2);
-	ndelay(500);
 
-	(void) reg_rd(&icap->icap_axi_gate->iag_rd);
-	reg_wr(&icap->icap_axi_gate->iag_wr, 0x0);
-	ndelay(500);
-
-	(void) reg_rd(&icap->icap_axi_gate->iag_rd);
-	reg_wr(&icap->icap_axi_gate->iag_wr, 0x2);
-	ndelay(500);
-
-	(void) reg_rd(&icap->icap_axi_gate->iag_rd);
-	reg_wr(&icap->icap_axi_gate->iag_wr, 0x3);
-	ndelay(500);
+	for (i = 0; i < GATE_FREE_STEPS; i++) {
+		(void) reg_rd(&icap->icap_axi_gate->iag_rd);
+		reg_wr(&icap->icap_axi_gate->iag_wr, vals[i]);
+		mdelay(50);
+	}
 
 	(void) reg_rd(&icap->icap_axi_gate->iag_rd);
 
@@ -575,9 +579,11 @@ static void platform_reset_axi_gate(struct platform_device *pdev)
 
 	mutex_lock(&icap->icap_lock);
 	if (!icap_bitstream_in_use(icap, 0)) {
-		(void) icap_freeze_axi_gate(platform_get_drvdata(pdev));
+		(void) icap_freeze_axi_gate(platform_get_drvdata(pdev),
+			GATE_FREEZE_USER);
 		msleep(500);
-		(void) icap_free_axi_gate(platform_get_drvdata(pdev));
+		(void) icap_free_axi_gate(platform_get_drvdata(pdev),
+			gate_free_user);
 		msleep(500);
 	}
 	mutex_unlock(&icap->icap_lock);
@@ -605,9 +611,9 @@ static int set_freqs(struct icap* icap, unsigned short* freqs, int num_freqs)
 	memcpy(icap->icap_ocl_frequency, freqs,
 		sizeof(*freqs) * min(ICAP_MAX_NUM_CLOCKS, num_freqs));
 
-	icap_freeze_axi_gate(icap);
+	icap_freeze_axi_gate(icap, GATE_FREEZE_USER);
 	err = icap_ocl_freqscaling(icap, false);
-	icap_free_axi_gate(icap);
+	icap_free_axi_gate(icap, gate_free_user);
 
 done:
 	return err;
@@ -1520,7 +1526,7 @@ static int icap_download_user(struct icap *icap, const char __user *bit_buf,
 
 	ICAP_INFO(icap, "downloading bitstream, length: %lu", length);
 
-	icap_freeze_axi_gate(icap);
+	icap_freeze_axi_gate(icap, GATE_FREEZE_USER);
 
 	err = icap_download_clear_bitstream(icap);
 	if (err)
@@ -1580,7 +1586,7 @@ static int icap_download_user(struct icap *icap, const char __user *bit_buf,
 		err = icap_ocl_freqscaling(icap, true);
 
 free_buffers:
-	icap_free_axi_gate(icap);
+	icap_free_axi_gate(icap, gate_free_user);
 	kfree(buffer);
 	kfree(bit_header.DesignName);
 	kfree(bit_header.PartName);
@@ -1674,9 +1680,9 @@ static int icap_download_bitstream_axlf(struct platform_device *pdev,
 		 * But, still need to reset CUs.
 		 */
 		if (!icap_bitstream_in_use(icap, pid)) {
-			icap_freeze_axi_gate(icap);
+			icap_freeze_axi_gate(icap, GATE_FREEZE_USER);
 			msleep(50);
-			icap_free_axi_gate(icap);
+			icap_free_axi_gate(icap, gate_free_user);
 			msleep(50);
 		}
 		ICAP_INFO(icap, "bitstream already exists, skip downloading");
@@ -2253,6 +2259,92 @@ static ssize_t clock_freqs_show(struct device *dev,
 }
 static DEVICE_ATTR_RO(clock_freqs);
 
+#ifdef SYSFS_DEBUG
+static ssize_t icap_data_write(struct file *filp, struct kobject *kobj,
+	struct bin_attribute *attr, char *buffer, loff_t off, size_t count)
+{
+	XHwIcap_Bit_Header bit_header = { 0 };
+	struct device *dev = container_of(kobj, struct device, kobj);
+	struct icap *icap = platform_get_drvdata(to_platform_device(dev));
+	xdev_handle_t xdev = xocl_get_xdev(icap->icap_pdev);
+	ssize_t ret = count;
+
+	if (off == 0) {
+		if (count < DMA_HWICAP_BITFILE_BUFFER_SIZE) {
+			ICAP_ERR(icap, "count is too small %ld", count);
+			return -EINVAL;
+		}
+
+		if (bitstream_parse_header(icap, buffer,
+			DMA_HWICAP_BITFILE_BUFFER_SIZE, &bit_header)) {
+			ICAP_ERR(icap, "parse header failed");
+			return -EINVAL;
+		}
+
+		icap->bit_length = bit_header.HeaderLength +
+			bit_header.BitstreamLength;
+		icap->bit_buffer = vmalloc(icap->bit_length);
+	}
+
+	if (off + count >= icap->bit_length) {
+		/*
+ 		 * TODO:
+ 		 * Need to Suspend mgmtpf/userpf and uninstall subdevices
+		 */
+		memcpy(icap->bit_buffer + off, buffer, icap->bit_length - off);
+		ret = health_thread_stop(xdev);
+		if (ret) {
+			ICAP_ERR(icap, "stop health thread failed");
+			goto failed;
+		}
+		//xocl_mb_stop(xdev);
+		//reset_dma(icap, true);
+		icap_freeze_axi_gate(icap, GATE_FREEZE_SHELL); 
+		ret = icap_download(icap, icap->bit_buffer, icap->bit_length);
+		if (ret) {
+			ICAP_ERR(icap, "bitstream download failed");
+			ret = -EIO;
+		}
+		icap_free_axi_gate(icap, gate_free_shell); 
+		//reset_dma(icap, false);
+		icap->icap_bitstream_id = 0;
+		// xocl_mb_reset(xdev);
+		ret = health_thread_start(xdev);
+		if (ret) {
+			ICAP_ERR(icap, "restart health thread failed");
+		}
+		vfree(icap->bit_buffer);
+		icap->bit_buffer = NULL;
+	} else {
+		memcpy(icap->bit_buffer + off, buffer, count);
+	}
+
+	return count;
+
+failed:
+	return ret;
+}
+
+static struct bin_attribute bit_program_attr = {
+	.attr = {
+		.name = "bit_program",
+		.mode = 0200
+	},
+	.read = NULL,
+	.write = icap_data_write,
+	.size = 0
+};
+
+static struct bin_attribute *icap_mgmt_bin_attrs[] = {
+	&bit_program_attr,
+	NULL,
+};
+
+static struct attribute_group icap_debug_attr_group = {
+	.bin_attrs = icap_mgmt_bin_attrs,
+};
+#endif
+
 static ssize_t idcode_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
@@ -2456,6 +2548,14 @@ static int icap_remove(struct platform_device *pdev)
 	del_all_users(icap);
 	xocl_subdev_register(pdev, XOCL_SUBDEV_ICAP, NULL);
 
+#ifdef SYSFS_DEBUG
+	if (ICAP_PRIVILEGED(icap))
+		sysfs_remove_group(&pdev->dev.kobj, &icap_debug_attr_group);
+
+	if (icap->bit_buffer)
+		vfree(icap->bit_buffer);
+#endif
+
 	iounmap(icap->icap_regs);
 	iounmap(icap->icap_state);
 	iounmap(icap->icap_axi_gate);
@@ -2584,6 +2684,17 @@ static int icap_probe(struct platform_device *pdev)
 		ICAP_ERR(icap, "create icap attrs failed: %d", ret);
 		goto failed;
 	}
+
+#ifdef SYSFS_DEBUG
+	if (ICAP_PRIVILEGED(icap)) {
+		ret = sysfs_create_group(&pdev->dev.kobj,
+			&icap_debug_attr_group);
+		if (ret) {
+			ICAP_ERR(icap, "create icap attrs failed: %d", ret);
+			goto failed;
+		}
+	}
+#endif
 
 	icap_probe_chip(icap);
 	ICAP_INFO(icap, "successfully initialized FPGA IDCODE 0x%x", icap->idcode);

@@ -220,8 +220,10 @@ void xocl_drvinst_free(void *data)
 	mutex_unlock(&xocl_drvinst_mutex);
 
 	/* wait all opened instances to close */
-	if (!atomic_dec_and_test(&drvinstp->ref))
+	if (!atomic_dec_and_test(&drvinstp->ref)) {
+		pr_info("Wait for close\n");
 		wait_for_completion(&drvinstp->comp);
+	}
 
 	kfree(drvinstp);
 }

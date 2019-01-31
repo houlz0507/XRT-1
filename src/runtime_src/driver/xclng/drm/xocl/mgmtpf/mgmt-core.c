@@ -624,8 +624,11 @@ static void xclmgmt_extended_probe(struct xclmgmt_dev *lro)
 	if (ret)
 		goto fail_all_subdev;
 
-	xocl_af_start_health_check(lro, health_check_cb, lro,
-		health_interval * 1000);
+	lro->core.thread_arg.health_cb = health_check_cb;
+	lro->core.thread_arg.arg = lro;
+	lro->core.thread_arg.interval = health_interval * 1000;
+
+	health_thread_start(lro);
 
 	/* Launch the mailbox server. */
 	(void) xocl_peer_listen(lro, xclmgmt_mailbox_srv, (void *)lro);
@@ -766,6 +769,8 @@ static void xclmgmt_remove(struct pci_dev *pdev)
 	mgmt_info(lro, "remove(0x%p) where pdev->dev.driver_data = 0x%p",
 	       pdev, lro);
 	BUG_ON(lro->core.pdev != pdev);
+
+	health_thread_stop(lro);
 
 	mgmt_fini_sysfs(&pdev->dev);
 

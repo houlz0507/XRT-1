@@ -1118,7 +1118,7 @@ post_exec_custat(struct xocl_cmd *xcmd)
 	/* read back from ert if enabled */
 	if (exec_is_ert(exec)) {
 		u32 slot_addr = ERT_CQ_BASE_ADDR + xcmd->slot_idx*slot_size(exec);
-		memcpy_fromio(exec->cu_usage,exec->base + slot_addr + 4,exec->num_cus*sizeof(u32));
+		xocl_memcpy_fromio(exec->cu_usage,exec->base + slot_addr + 4,exec->num_cus*sizeof(u32));
 	}
 	SCHED_DEBUGF("<- post_exec_custat(%lu)\n",xcmd->id);
 	return 0;
@@ -1838,7 +1838,7 @@ mb_submit(struct xocl_cmd *xcmd)
 	SCHED_DEBUG_PACKET(xcmd->packet,packet_size(xcmd));
 
 	/* write packet minus header */
-	memcpy_toio(xcmd->exec->base + slot_addr + 4,xcmd->packet->data,(packet_size(xcmd)-1)*sizeof(u32));
+	xocl_memcpy_toio(xcmd->exec->base + slot_addr + 4,xcmd->packet->data,(packet_size(xcmd)-1)*sizeof(u32));
 
 	/* write header */
 	iowrite32(xcmd->packet->header,xcmd->exec->base + slot_addr);
