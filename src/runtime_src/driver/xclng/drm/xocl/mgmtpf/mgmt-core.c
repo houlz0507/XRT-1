@@ -749,7 +749,7 @@ static int xclmgmt_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	}
 
 	/* allocate zeroed device book keeping structure */
-	lro = xocl_drvinst_alloc(sizeof(struct xclmgmt_dev));
+	lro = xocl_drvinst_alloc(&pdev->dev, sizeof(struct xclmgmt_dev));
 	if (!lro) {
 		xocl_err(&pdev->dev, "Could not kzalloc(xclmgmt_dev).\n");
 		rc = -ENOMEM;

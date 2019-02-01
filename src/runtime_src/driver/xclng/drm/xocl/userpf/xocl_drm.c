@@ -57,6 +57,39 @@ static void xocl_free_object(struct drm_gem_object *obj)
 	xocl_free_bo(obj);
 }
 
+static int xocl_open(struct inode *inode, struct file *filp)
+{
+	struct xocl_dev *xdev;
+	struct drm_file *priv;
+	struct drm_device *ddev;
+	int ret;
+
+	ret = drm_open(inode, filp);
+	if (ret)
+		return ret;
+
+	priv = filp->private_data;
+	ddev = priv->minor->dev;
+	xdev = xocl_drvinst_open(ddev);
+	if (!xdev)
+		return -ENXIO;
+
+	return 0;
+}
+
+static int xocl_release(struct inode *inode, struct file *filp)
+{
+	struct drm_file *priv = filp->private_data;
+	struct drm_device *ddev = priv->minor->dev;
+	struct xocl_dev	*xdev = ddev->dev_private;
+	int ret;
+
+	ret = drm_release(inode, filp);
+	xocl_drvinst_close(xdev);
+
+	return ret;
+}
+
 static int xocl_mmap(struct file *filp, struct vm_area_struct *vma)
 {
 	int ret;
@@ -179,14 +212,10 @@ int xocl_gem_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 
 static int xocl_client_open(struct drm_device *dev, struct drm_file *filp)
 {
-	struct xocl_dev	*xdev;
+	struct xocl_dev	*xdev = dev->dev_private;
 	int	ret = 0;
 
 	DRM_ENTER("");
-
-	xdev = xocl_drvinst_open(dev);
-	if (!xdev)
-		return -ENXIO;
 
 	/* We do not allow users to open PRIMARY node, /dev/dri/cardX node.
 	 * Users should only open RENDER, /dev/dri/renderX node */
@@ -236,8 +265,6 @@ static void xocl_client_release(struct drm_device *dev, struct drm_file *filp)
 	}
 	bitmap_zero(client->cu_bitmap, MAX_CUS);
 	xocl_exec_destroy_client(xdev, &filp->driver_priv);
-
-	xocl_drvinst_close(xdev);
 }
 
 static uint xocl_poll(struct file *filp, poll_table *wait)
@@ -287,8 +314,6 @@ static const struct drm_ioctl_desc xocl_ioctls[] = {
 			  DRM_AUTH|DRM_UNLOCKED|DRM_RENDER_ALLOW),
 	DRM_IOCTL_DEF_DRV(XOCL_HOT_RESET, xocl_hot_reset_ioctl,
 		  DRM_AUTH|DRM_UNLOCKED|DRM_RENDER_ALLOW),
-	DRM_IOCTL_DEF_DRV(XOCL_P2P_ENABLE, xocl_p2p_enable_ioctl,
-			  DRM_AUTH|DRM_UNLOCKED|DRM_RENDER_ALLOW),
 	DRM_IOCTL_DEF_DRV(XOCL_RECLOCK, xocl_reclock_ioctl,
 	  DRM_AUTH|DRM_UNLOCKED|DRM_RENDER_ALLOW),
 };
@@ -301,12 +326,12 @@ static long xocl_drm_ioctl(struct file *filp,
 
 static const struct file_operations xocl_driver_fops = {
 	.owner		= THIS_MODULE,
-	.open		= drm_open,
+	.open		= xocl_open,
 	.mmap		= xocl_mmap,
 	.poll		= xocl_poll,
 	.read		= drm_read,
 	.unlocked_ioctl = xocl_drm_ioctl,
-	.release	= drm_release,
+	.release	= xocl_release,
 };
 
 static const struct vm_operations_struct xocl_vm_ops = {

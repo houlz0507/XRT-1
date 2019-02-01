@@ -108,7 +108,59 @@ static ssize_t p2p_enable_show(struct device *dev,
 	return sprintf(buf, "0\n");
 }
 
-static DEVICE_ATTR_RO(p2p_enable);
+static ssize_t p2p_enable_store(struct device *dev,
+		struct device_attribute *da, const char *buf, size_t count)
+{
+	struct xocl_dev *xdev = dev_get_drvdata(dev);
+	struct pci_dev *pdev = xdev->core.pdev;
+	int ret, p2p_bar;
+	u32 enable;
+	u64 size;
+
+
+	if (kstrtou32(buf, 10, &enable) == -EINVAL || enable > 1) {
+		return -EINVAL;
+	}
+
+	p2p_bar = xocl_get_p2p_bar(xdev, NULL);
+	if (p2p_bar < 0) {
+		xocl_err(&pdev->dev, "p2p bar is not configurable");
+		return -EACCES;
+	}
+
+	size = xocl_get_ddr_channel_size(xdev) *
+		xocl_get_ddr_channel_count(xdev); /* GB */
+	size = (ffs(size) == fls(size)) ? (fls(size) - 1) : fls(size);
+	size = enable ? (size + 10) : (XOCL_PA_SECTION_SHIFT - 20);
+	xocl_info(&pdev->dev, "Resize p2p bar %d to %d M ", p2p_bar,
+			(1 << size));
+	xocl_p2p_mem_release(xdev, false);
+
+	ret = xocl_pci_resize_resource(pdev, p2p_bar, size);
+	if (ret) {
+		xocl_err(&pdev->dev, "Failed to resize p2p BAR %d", ret);
+		goto failed;
+	}
+
+	xdev->bypass_bar_idx = p2p_bar;
+	xdev->bypass_bar_len = pci_resource_len(pdev, p2p_bar);
+
+	if (enable) {
+		ret = xocl_p2p_mem_reserve(xdev);
+		if (ret) {
+			xocl_err(&pdev->dev, "Failed to reserve p2p memory %d",
+					ret);
+		}
+	}
+
+	return count;
+
+failed:
+	return ret;
+
+}
+
+static DEVICE_ATTR(p2p_enable, 0644, p2p_enable_show, p2p_enable_store);
 
 /* - End attributes-- */
 

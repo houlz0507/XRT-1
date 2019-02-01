@@ -106,9 +106,6 @@ struct xocl_dev	{
 	struct debug_ip_layout	       *debug_layout;
 	struct connectivity	       *connectivity;
 
-	/* context table */
-	struct xocl_context_hash	ctx_table;
-
 	/* health thread */
 	struct task_struct	       *health_thread;
 	struct xocl_health_thread_arg	thread_arg;
@@ -184,8 +181,6 @@ int xocl_read_axlf_ioctl(struct drm_device *dev, void *data,
 	struct drm_file *filp);
 int xocl_hot_reset_ioctl(struct drm_device *dev, void *data,
                          struct drm_file *filp);
-int xocl_p2p_enable_ioctl(struct drm_device *dev, void *data,
-	struct drm_file *filp);
 int xocl_reclock_ioctl(struct drm_device *dev, void *data,
   struct drm_file *filp);
 

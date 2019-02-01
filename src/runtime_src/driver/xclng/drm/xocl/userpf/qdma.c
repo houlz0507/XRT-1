@@ -102,7 +102,7 @@ static int xocl_user_qdma_probe(struct pci_dev *pdev,
 	struct xocl_board_private	*dev_info;
 	int ret = 0;
 
-	qd = xocl_drvinst_alloc(sizeof (*qd));
+	qd = xocl_drvinst_alloc(&pdev->dev, sizeof (*qd));
 	if (!qd) {
 		xocl_err(&pdev->dev, "failed to alloc xocl_dev");
 		return -ENOMEM;

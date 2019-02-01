@@ -346,7 +346,7 @@ static int xvc_probe(struct platform_device *pdev)
 	struct xocl_dev_core *core;
 	int err;
 
-	xvc = xocl_drvinst_alloc(sizeof(*xvc));
+	xvc = xocl_drvinst_alloc(&pdev->dev, sizeof(*xvc));
 	if (!xvc)
 		return -ENOMEM;
 

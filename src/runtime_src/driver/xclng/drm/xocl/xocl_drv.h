@@ -196,22 +196,6 @@ struct xocl_pci_funcs {
 #define	xocl_user_dev_offline(xdev)	\
 	XDEV_PCIOPS(xdev)->dev_offline(xdev)
 
-struct xocl_context {
-	struct hlist_node	hlist;
-	u32			arg_sz;
-	char			arg[1];
-};
-
-struct xocl_context_hash {
-	struct hlist_head	*hash;
-	u32			size;
-	u32			count;
-	spinlock_t		ctx_lock;
-	struct device		*dev;
-	u32 (*hash_func)(void *arg);
-	int (*cmp_func)(void *arg_o, void *arg_n);
-};
-
 struct xocl_health_thread_arg {
 	int (*health_cb)(void *arg);
 	void		*arg;
@@ -219,10 +203,18 @@ struct xocl_health_thread_arg {
 	struct device	*dev;
 };
 
+struct xocl_drvinst_proc {
+	struct list_head	link;
+	u32			pid;
+	u32			count;
+};
+
 struct xocl_drvinst {
+	struct device		*dev;
 	u32			size;
 	atomic_t		ref;
 	struct completion	comp;
+	struct list_head	open_procs;
 	void			*file_dev;
 	char			data[1];
 };
@@ -673,19 +665,10 @@ int xocl_alloc_dev_minor(xdev_handle_t xdev_hdl);
 void xocl_free_dev_minor(xdev_handle_t xdev_hdl);
 
 /* context helpers */
-int xocl_ctx_init(struct device *dev, struct xocl_context_hash *ctx_hash,
-	u32 hash_sz, u32 (*hash_func)(void *arg),
-	int (*cmp_func)(void *arg_o, void *arg_n));
-void xocl_ctx_fini(struct device *dev, struct xocl_context_hash *ctx_hash);
-int xocl_ctx_remove(struct xocl_context_hash *ctx_hash, void *arg);
-int xocl_ctx_add(struct xocl_context_hash *ctx_hash, void *arg, u32 arg_sz);
-int xocl_ctx_traverse(struct xocl_context_hash *ctx_hash,
-	int (*cb_func)(struct xocl_context_hash *ctx_hash, void *arg));
-
 extern struct mutex xocl_drvinst_mutex;
 extern struct xocl_drvinst *xocl_drvinst_array[XOCL_MAX_DEVICES * 10];
 
-void *xocl_drvinst_alloc(u32 size);
+void *xocl_drvinst_alloc(struct device *dev, u32 size);
 void xocl_drvinst_free(void *data);
 void *xocl_drvinst_open(void *file_dev);
 void xocl_drvinst_close(void *data);

@@ -807,54 +807,6 @@ int xocl_hot_reset_ioctl(struct drm_device *dev, void *data,
 	return err;
 }
 
-int xocl_p2p_enable_ioctl(struct drm_device *dev,
-			  void *data,
-			  struct drm_file *filp)
-{
-	struct xocl_dev *xdev = dev->dev_private;
-	struct pci_dev *pdev = xdev->core.pdev;
-	int ret, p2p_bar, enable;
-	u64 size;
-
-	enable = ((struct drm_xocl_p2p_enable *)data)->enable;
-
-	p2p_bar = xocl_get_p2p_bar(xdev, NULL);
-	if (p2p_bar < 0) {
-		xocl_err(&pdev->dev, "p2p bar is not configurable");
-		return -EACCES;
-	}
-
-	size = xocl_get_ddr_channel_size(xdev) *
-			xocl_get_ddr_channel_count(xdev); /* GB */
-	size = (ffs(size) == fls(size)) ? (fls(size) - 1) : fls(size);
-	size = enable ? (size + 10) : (XOCL_PA_SECTION_SHIFT - 20);
-
-	xocl_info(&pdev->dev, "Resize p2p bar %d to %d M ", p2p_bar,
-			(1 << size));
-	xocl_p2p_mem_release(xdev, false);
-
-	ret = xocl_pci_resize_resource(pdev, p2p_bar, size);
-	if (ret) {
-		xocl_err(&pdev->dev, "Failed to resize p2p BAR %d", ret);
-		goto failed;
-	}
-
-	xdev->bypass_bar_idx = p2p_bar;
-	xdev->bypass_bar_len = pci_resource_len(pdev, p2p_bar);
-
-	if (enable) {
-		ret = xocl_p2p_mem_reserve(xdev);
-		if (ret) {
-			xocl_err(&pdev->dev, "Failed to reserve p2p memory %d",
-				      	ret);
-		}
-	}
-
-
-failed:
-	return ret;
-}
-
 int xocl_reclock_ioctl(struct drm_device *dev, void *data,
 	struct drm_file *filp)
 {

@@ -90,7 +90,7 @@ int xocl_user_xdma_probe(struct pci_dev *pdev,
 	u32 channel = 0;
 	int ret;
 
-	xd = xocl_drvinst_alloc(sizeof(*xd));
+	xd = xocl_drvinst_alloc(&pdev->dev, sizeof(*xd));
 	if (!xd) {
 		xocl_err(&pdev->dev, "failed to alloc xocl_dev");
 		return -ENOMEM;
