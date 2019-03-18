@@ -24,6 +24,7 @@ Fixed
 * Several core QDMA driver fixes.
 * xocl scheduler thread now yields correctly when running in polling mode.
 * Several Coverity/Fortify code scan fixes.
+* XRT multi process DMA handling.
 
 Deprecated
 ----------
