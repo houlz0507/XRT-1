@@ -25,10 +25,6 @@
 #ifndef _PERFMON_PARAMETERS_H_
 #define _PERFMON_PARAMETERS_H_
 
-//#define PERFMON0_OFFSET                 0x100000
-//#define PERFMON1_OFFSET                 0x120000
-//#define PERFMON2_OFFSET                 0x010000
-
 /************************ AXI Stream FIFOs ************************************/
 
 /* Address offsets in core */
@@ -140,6 +136,12 @@
 #define XSSPM_BUSY_CYCLES_OFFSET       0x90
 #define XSSPM_STALL_CYCLES_OFFSET      0x98
 #define XSSPM_STARVE_CYCLES_OFFSET     0xA0
+
+/********************* AXI Stream Protocol Checker (SPC) *********************/
+
+#define XSPC_PC_ASSERTED_OFFSET 0x0
+#define XSPC_CURRENT_PC_OFFSET  0x100
+#define XSPC_SNAPSHOT_PC_OFFSET 0x200
 
 /************************ APM Constant Definitions ****************************/
 

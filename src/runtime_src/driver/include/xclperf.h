@@ -40,6 +40,11 @@
 #define DSA_MAJOR_VERSION 1
 #define DSA_MINOR_VERSION 1
 
+/************************ DEBUG IP LAYOUT ************************************/
+
+#define IP_LAYOUT_HOST_NAME "HOST"
+#define IP_LAYOUT_SEP "-"
+
 /************************ APM 0: Monitor MIG Ports ****************************/
 
 #define XPAR_AXI_PERF_MON_0_NUMBER_SLOTS                2
@@ -190,7 +195,8 @@
 
 #define XAPM_MAX_NUMBER_SLOTS             8
 // Max slots = floor(max slots on trace funnel / 2) = floor(63 / 2) = 31
-#define XSPM_MAX_NUMBER_SLOTS             31
+// NOTE: SPM max slots += 3 to support XDMA/KDMA/P2P monitors on some 2018.3 platforms
+#define XSPM_MAX_NUMBER_SLOTS             34
 #define XSAM_MAX_NUMBER_SLOTS             31
 #define XSSPM_MAX_NUMBER_SLOTS            31
 #define XAPM_METRIC_COUNTERS_PER_SLOT     8
@@ -256,10 +262,11 @@
 enum xclPerfMonType {
 	XCL_PERF_MON_MEMORY = 0,
 	XCL_PERF_MON_HOST   = 1,
-	XCL_PERF_MON_ACCEL  = 2,
-	XCL_PERF_MON_STALL  = 3,
-	XCL_PERF_MON_STR = 4,
-	XCL_PERF_MON_TOTAL_PROFILE = 5
+	XCL_PERF_MON_SHELL  = 2,
+	XCL_PERF_MON_ACCEL  = 3,
+	XCL_PERF_MON_STALL  = 4,
+	XCL_PERF_MON_STR    = 5,
+	XCL_PERF_MON_TOTAL_PROFILE = 6
 };
 
 /* Performance monitor start event */
@@ -435,7 +442,7 @@ enum DeviceType {
  * nifd driver.
  */
 typedef struct {
-  DeviceType device_type;
+  enum DeviceType device_type;
   unsigned int device_index;
   unsigned int mgmt_instance;
   unsigned int user_instance;
