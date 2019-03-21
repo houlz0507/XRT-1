@@ -118,6 +118,19 @@ SET (XRT_DKMS_SRCS
   driver/include/xclfeatures.h
   driver/include/xclbin.h
   driver/include/xclerr.h
+  driver/xclng/drm/xocl/lib/libfdt/fdt.c
+  driver/xclng/drm/xocl/lib/libfdt/fdt.h
+  driver/xclng/drm/xocl/lib/libfdt/fdt_addresses.c
+  driver/xclng/drm/xocl/lib/libfdt/fdt_empty_tree.c
+  driver/xclng/drm/xocl/lib/libfdt/fdt_overlay.c
+  driver/xclng/drm/xocl/lib/libfdt/fdt_ro.c
+  driver/xclng/drm/xocl/lib/libfdt/fdt_rw.c
+  driver/xclng/drm/xocl/lib/libfdt/fdt_strerror.c
+  driver/xclng/drm/xocl/lib/libfdt/fdt_sw.c
+  driver/xclng/drm/xocl/lib/libfdt/fdt_wip.c
+  driver/xclng/drm/xocl/lib/libfdt/libfdt.h
+  driver/xclng/drm/xocl/lib/libfdt/libfdt_env.h
+  driver/xclng/drm/xocl/lib/libfdt/libfdt_internal.h
   )
 
 SET (XRT_DKMS_ABS_SRCS)

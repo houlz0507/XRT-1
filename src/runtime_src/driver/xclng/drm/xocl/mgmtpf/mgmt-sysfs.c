@@ -271,6 +271,59 @@ static ssize_t subdev_offline_store(struct device *dev,
 
 static DEVICE_ATTR(subdev_offline, 0200, NULL, subdev_offline_store);
 
+static ssize_t fw_meta_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct xclmgmt_dev *lro = dev_get_drvdata(dev);
+	const struct firmware *fw;
+	struct FeatureRomHeader	header;
+	char fw_name[100];
+	static int depth = 0;
+	int ret, offset,node_off, len = 0, i;
+
+	xocl_get_raw_header(lro, &header);
+	sprintf(fw_name, "xilinx/%s.dtb", header.VBNVName);
+	
+	ret = request_firmware(&fw, fw_name, &lro->core.pdev->dev);
+	if (ret) {
+		return -EFAULT;
+	}
+
+	for (node_off = 0;
+		node_off >= 0; 
+		node_off = fdt_next_node(fw->data, node_off, &depth)) {
+		const char *pname;
+		u32 sz;
+
+		for (i = 0; i < depth; i++)
+			len += sprintf(buf + len, "    ");
+		pname = fdt_get_name(fw->data, node_off, &sz);
+		len += sprintf(buf + len, "%s\n", pname);
+		pr_info("NODE OFFSET = %d\n", node_off);
+		for (offset = fdt_first_property_offset(fw->data, node_off);
+			offset >= 0;
+			offset = fdt_next_property_offset(fw->data, offset)) {
+			const __be32 *p;
+
+			pr_info("OFFSET = %d\n", offset);
+			p = fdt_getprop_by_offset(fw->data, offset, &pname, &sz);
+			if (!p) {
+				len = -EINVAL;
+				break;
+			}
+			for (i = 0; i < depth; i++)
+				len += sprintf(buf + len, "    ");
+			len += sprintf(buf + len, "  %s = ", pname);
+			for (i = 0; i < sz / 4; i++) 
+				len += sprintf(buf + len, "%x ", ntohl(p[i]));
+			len += sprintf(buf + len, "\n");
+		}
+	}
+
+	return len;
+}
+static DEVICE_ATTR_RO(ips);
+
 static struct attribute *mgmt_attrs[] = {
 	&dev_attr_instance.attr,
 	&dev_attr_error.attr,
@@ -292,6 +345,7 @@ static struct attribute *mgmt_attrs[] = {
 	&dev_attr_dev_offline.attr,
 	&dev_attr_subdev_online.attr,
 	&dev_attr_subdev_offline.attr,
+	&dev_attr_fw_meta.attr,
 	NULL,
 };
 
