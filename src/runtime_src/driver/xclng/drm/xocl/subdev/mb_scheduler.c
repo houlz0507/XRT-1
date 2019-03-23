@@ -1427,6 +1427,7 @@ exec_isr(int irq, void *arg)
 	SCHED_DEBUGF("-> xocl_user_event %d\n", irq);
 	if (exec && !exec->polling_mode) {
 
+		irq -= exec->intr_base;
 		if (irq == 0)
 			atomic_set(&exec->sr0, 1);
 		else if (irq == 1)
@@ -2753,9 +2754,9 @@ create_client(struct platform_device *pdev, void **priv)
 	return ret;
 }
 
-static void abort_client(struct platform_device *pdev,
-		struct client_ctx *client)
+static void destroy_client(struct platform_device *pdev, void **priv)
 {
+	struct client_ctx *client = (struct client_ctx *)(*priv);
 	struct exec_core *exec = platform_get_drvdata(pdev);
 	struct xocl_scheduler *xs = exec_scheduler(exec);
 	struct xocl_dev	*xdev = xocl_get_xdev(pdev);
@@ -2793,6 +2794,8 @@ static void abort_client(struct platform_device *pdev,
 		outstanding = new;
 	}
 
+	mutex_lock(&xdev->dev_lock);
+
 	pid = pid_nr(client->pid);
 	layout = XOCL_IP_LAYOUT(xdev);
 	xclbin_id = XOCL_XCLBIN_ID(xdev);
@@ -2823,38 +2826,9 @@ static void abort_client(struct platform_device *pdev,
 	client_release_implicit_cus(exec, client);
 	bitmap_zero(client->cu_bitmap, MAX_CUS);
 
-	DRM_INFO("client exits pid(%d)\n", pid);
-}
-
-static void abort_all_clients(struct platform_device *pdev)
-{
-	struct exec_core *exec = platform_get_drvdata(pdev);
-	struct xocl_dev	*xdev = xocl_get_xdev(pdev);
-	struct list_head *ptr;
-	struct client_ctx *entry;
-
-	mutex_lock(&xdev->dev_lock);
-	list_for_each(ptr, &xdev->ctx_list) {
-		entry = list_entry(ptr, struct client_ctx, link);
-		if (!entry->abort)
-			abort_client(pdev, entry);
-	}
-	mutex_unlock(&xdev->dev_lock);
-
-	wake_up_interruptible(&exec->poll_wait_queue);
-}
-
-static void destroy_client(struct platform_device *pdev, void **priv)
-{
-	struct client_ctx *client = (struct client_ctx *)(*priv);
-	struct xocl_dev	*xdev = xocl_get_xdev(pdev);
-
-	mutex_lock(&xdev->dev_lock);
-
-	if (!client->abort)
-		abort_client(pdev, client);
-	
 	list_del(&client->link);
+	DRM_INFO("client exits pid(%d)\n", pid);
+
 	mutex_unlock(&xdev->dev_lock);
 
 	devm_kfree(XDEV2DEV(xdev), client);
@@ -3447,8 +3421,6 @@ static int mb_scheduler_remove(struct platform_device *pdev)
 			NULL, NULL);
 	}
 	mutex_destroy(&exec->exec_lock);
-
-	abort_all_clients(pdev);
 
 	user_sysfs_destroy_kds(pdev);
 	exec_destroy(exec);
