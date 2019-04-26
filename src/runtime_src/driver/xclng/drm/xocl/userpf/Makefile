@@ -21,6 +21,7 @@ xocl-y := \
 	../xocl_subdev.o \
 	../xocl_ctx.o \
 	../xocl_thread.o \
+	../xocl_fdt.o \
 	../subdev/xdma.o \
 	../subdev/qdma.o \
 	../subdev/feature_rom.o \
@@ -36,6 +37,7 @@ xocl-y := \
 	xocl_ioctl.o	\
 	xocl_sysfs.o
 
+xocl-y += $(libfdt-y)
 
 CONFIG_MODULE_SIG=n
 KERNELDIR ?= /lib/modules/$(shell uname -r)/build

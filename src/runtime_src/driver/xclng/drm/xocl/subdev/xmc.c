@@ -1482,7 +1482,7 @@ failed:
 }
 
 struct platform_device_id xmc_id_table[] = {
-	{ XOCL_XMC, 0 },
+	{ XOCL_DEVNAME(XOCL_XMC), 0 },
 	{ },
 };
 

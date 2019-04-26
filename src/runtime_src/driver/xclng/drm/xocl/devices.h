@@ -50,7 +50,7 @@ enum {
 
 struct xocl_subdev_info {
         uint32_t		id;
-        char			*name;
+        const char		*name;
         struct resource		*res;
         int			num_res;
 	void			*priv_data;
@@ -114,23 +114,24 @@ enum {
 #define	MGMT_SUFFIX		".m"
 #define	USER_SUFFIX		".u"
 
-#define	XOCL_FEATURE_ROM_USER	"rom" USER_SUFFIX
-#define XOCL_FEATURE_ROM	"rom" SUBDEV_SUFFIX
-#define XOCL_XDMA		"xdma" SUBDEV_SUFFIX
-#define XOCL_QDMA		"qdma" SUBDEV_SUFFIX
-#define XOCL_MB_SCHEDULER	"mb_scheduler" SUBDEV_SUFFIX
-#define XOCL_XVC_PUB		"xvc_pub" SUBDEV_SUFFIX
-#define XOCL_XVC_PRI		"xvc_pri" SUBDEV_SUFFIX
-#define XOCL_SYSMON		"sysmon" SUBDEV_SUFFIX
-#define XOCL_FIREWALL		"firewall" SUBDEV_SUFFIX
-#define	XOCL_MB			"microblaze" SUBDEV_SUFFIX
-#define	XOCL_XIIC		"xiic" SUBDEV_SUFFIX
-#define	XOCL_MAILBOX		"mailbox" SUBDEV_SUFFIX
-#define	XOCL_ICAP		"icap" SUBDEV_SUFFIX
-#define	XOCL_MIG		"mig" SUBDEV_SUFFIX
-#define	XOCL_XMC		"xmc" SUBDEV_SUFFIX
-#define	XOCL_DNA		"dna" SUBDEV_SUFFIX
-#define	XOCL_FMGR		"fmgr" SUBDEV_SUFFIX
+#define XOCL_FEATURE_ROM		"rom"
+#define XOCL_XDMA			"xdma"
+#define XOCL_QDMA			"qdma"
+#define XOCL_MB_SCHEDULER		"mb_scheduler"
+#define XOCL_XVC_PUB			"xvc_pub"
+#define XOCL_XVC_PRI			"xvc_priv"
+#define XOCL_SYSMON			"sysmon"
+#define XOCL_FIREWALL			"firewall"
+#define	XOCL_MB				"microblaze"
+#define	XOCL_XIIC			"xiic"
+#define	XOCL_MAILBOX			"mailbox"
+#define	XOCL_ICAP			"icap"
+#define	XOCL_MIG			"mig"
+#define	XOCL_XMC			"xmc"
+#define	XOCL_DNA			"dna"
+#define	XOCL_FMGR			"fmgr"
+
+#define XOCL_DEVNAME(str)	str SUBDEV_SUFFIX
 
 enum subdev_id {
 	XOCL_SUBDEV_FEATURE_ROM,
@@ -149,6 +150,19 @@ enum subdev_id {
 	XOCL_SUBDEV_DNA,
 	XOCL_SUBDEV_FMGR,
 	XOCL_SUBDEV_NUM
+};
+
+#define XOCL_MAX_RES		16
+#define XOCL_RES_NAME_LEN	64
+
+#define	XOCL_SUBDEV_MAP_USERPF_ONLY		0x1
+struct xocl_subdev_map {
+	int	id;
+	const char *dev_name;
+	char	*ip_names[XOCL_MAX_RES];
+	u32	ipnum;
+	u32	flags;
+	int	(*add_subdev)(unsigned long dev_hdl);
 };
 
 #define	XOCL_RES_FEATURE_ROM				\
@@ -186,7 +200,7 @@ enum subdev_id {
 		ARRAY_SIZE(XOCL_RES_SYSMON),		\
 	}
 
-/* Will be populated dynamically */
+/*ME_ Will be populated dynamically */
 #define	XOCL_RES_MIG					\
 		((struct resource []) {			\
 			{				\

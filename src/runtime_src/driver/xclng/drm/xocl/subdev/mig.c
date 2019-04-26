@@ -236,7 +236,7 @@ static int mig_remove(struct platform_device *pdev)
 }
 
 struct platform_device_id mig_id_table[] = {
-	{ XOCL_MIG, 0 },
+	{ XOCL_DEVNAME(XOCL_MIG), 0 },
 	{ },
 };
 

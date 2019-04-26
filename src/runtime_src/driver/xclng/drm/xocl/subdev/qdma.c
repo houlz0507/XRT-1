@@ -1602,7 +1602,7 @@ static int qdma_remove(struct platform_device *pdev)
 }
 
 static struct platform_device_id qdma_id_table[] = {
-	{ XOCL_QDMA, 0 },
+	{ XOCL_DEVNAME(XOCL_QDMA), 0 },
 	{ },
 };
 

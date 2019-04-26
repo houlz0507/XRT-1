@@ -110,6 +110,9 @@ struct xclmgmt_dev {
 #endif
 	int msix_user_start_vector;
 	bool ready;
+
+	char *bin_buffer;
+	size_t bin_length;
 };
 
 extern int health_check;

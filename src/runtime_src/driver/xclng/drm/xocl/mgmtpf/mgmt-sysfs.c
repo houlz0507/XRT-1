@@ -280,61 +280,6 @@ static ssize_t subdev_offline_store(struct device *dev,
 
 static DEVICE_ATTR(subdev_offline, 0200, NULL, subdev_offline_store);
 
-#if 0
-static ssize_t fw_meta_show(struct device *dev,
-	struct device_attribute *attr, char *buf)
-{
-	struct xclmgmt_dev *lro = dev_get_drvdata(dev);
-	const struct firmware *fw;
-	struct FeatureRomHeader	header;
-	char fw_name[100];
-	static int depth = 0;
-	int ret, offset,node_off, len = 0, i;
-
-	xocl_get_raw_header(lro, &header);
-	sprintf(fw_name, "xilinx/%s.dtb", header.VBNVName);
-	
-	ret = request_firmware(&fw, fw_name, &lro->core.pdev->dev);
-	if (ret) {
-		return -EFAULT;
-	}
-
-	for (node_off = 0;
-		node_off >= 0; 
-		node_off = fdt_next_node(fw->data, node_off, &depth)) {
-		const char *pname;
-		u32 sz;
-
-		for (i = 0; i < depth; i++)
-			len += sprintf(buf + len, "    ");
-		pname = fdt_get_name(fw->data, node_off, &sz);
-		len += sprintf(buf + len, "%s\n", pname);
-		pr_info("NODE OFFSET = %d\n", node_off);
-		for (offset = fdt_first_property_offset(fw->data, node_off);
-			offset >= 0;
-			offset = fdt_next_property_offset(fw->data, offset)) {
-			const __be32 *p;
-
-			pr_info("OFFSET = %d\n", offset);
-			p = fdt_getprop_by_offset(fw->data, offset, &pname, &sz);
-			if (!p) {
-				len = -EINVAL;
-				break;
-			}
-			for (i = 0; i < depth; i++)
-				len += sprintf(buf + len, "    ");
-			len += sprintf(buf + len, "  %s = ", pname);
-			for (i = 0; i < sz / 4; i++) 
-				len += sprintf(buf + len, "%x ", ntohl(p[i]));
-			len += sprintf(buf + len, "\n");
-		}
-	}
-
-	return len;
-}
-static DEVICE_ATTR_RO(fw_meta);
-#endif
-
 static ssize_t sw_chan_en_store(struct device *dev,
 	struct device_attribute *da, const char *buf, size_t count)
 {
@@ -381,6 +326,21 @@ static ssize_t sw_chan_reset_store(struct device *dev,
 
 static DEVICE_ATTR(sw_chan_reset, 0200, NULL, sw_chan_reset_store);
 
+static ssize_t blob_clear_store(struct device *dev,
+	struct device_attribute *da, const char *buf, size_t count)
+{
+	struct xclmgmt_dev *lro = dev_get_drvdata(dev);
+
+	if (lro->core.fdt_blob) {
+		vfree(lro->core.fdt_blob);
+		lro->core.fdt_blob = NULL;
+	}
+
+	return count;
+}
+
+static DEVICE_ATTR(blob_clear, 0200, NULL, blob_clear_store);
+
 static struct attribute *mgmt_attrs[] = {
 	&dev_attr_instance.attr,
 	&dev_attr_error.attr,
@@ -404,11 +364,90 @@ static struct attribute *mgmt_attrs[] = {
 	&dev_attr_subdev_offline.attr,
 	&dev_attr_sw_chan_en.attr,
 	&dev_attr_sw_chan_reset.attr,
+	&dev_attr_blob_clear.attr,
+	NULL,
+};
+
+static ssize_t mgmt_blob_input(struct file *filp, struct kobject *kobj,
+	struct bin_attribute *attr, char *buffer, loff_t off, size_t count)
+{
+	struct device *dev = container_of(kobj, struct device, kobj);
+	struct xclmgmt_dev *lro = dev_get_drvdata(dev);
+	int ret = 0;
+
+	if (off == 0) {
+		if (count < sizeof(struct fdt_header)) {
+			mgmt_err(lro, "count is too small %ld", count);
+			return -EINVAL;
+		}
+
+		if (fdt_check_header(buffer)) {
+			mgmt_err(lro, "Invalid fdt header");
+			return -EINVAL;
+		}
+
+		lro->bin_length = fdt_totalsize(buffer);
+		lro->bin_buffer = vmalloc(lro->bin_length);
+	}
+
+	if (off + count >= lro->bin_length) {
+		memcpy(lro->bin_buffer + off, buffer, lro->bin_length - off);
+		ret = xocl_fdt_blob_input(lro, lro->bin_buffer, lro->bin_length);
+		vfree(lro->bin_buffer);
+		lro->bin_buffer = NULL;
+		lro->bin_length = 0;
+	} else
+		memcpy(lro->bin_buffer + off, buffer, count);
+
+	return ret ? ret : count;
+}
+
+static ssize_t mgmt_blob_output(struct file *filp, struct kobject *kobj,
+	struct bin_attribute *attr, char *buf, loff_t off, size_t count)
+{
+	struct device *dev = kobj_to_dev(kobj);
+	struct xclmgmt_dev *lro = dev_get_drvdata(dev);
+	unsigned char *blob;
+	size_t size;
+	ssize_t ret = 0;
+
+	if (!lro->core.fdt_blob)
+		goto bail;
+
+	blob = lro->core.fdt_blob;
+	size = fdt_totalsize(lro->core.fdt_blob);
+
+	if (off >= size)
+		goto bail;
+
+	if (off + count > size)
+		count = size - off;
+	memcpy(buf, blob + off, count);
+
+	ret = count;
+bail:
+
+	return ret;
+}
+
+static struct bin_attribute blob_input_attr = {
+	.attr = {
+		.name = "blob_input",
+		.mode = 0600
+	},
+	.read = mgmt_blob_output,
+	.write = mgmt_blob_input,
+	.size = 0
+};
+
+static struct bin_attribute  *mgmt_bin_attrs[] = {
+	&blob_input_attr,
 	NULL,
 };
 
 static struct attribute_group mgmt_attr_group = {
 	.attrs = mgmt_attrs,
+	.bin_attrs = mgmt_bin_attrs,
 };
 
 int mgmt_init_sysfs(struct device *dev)

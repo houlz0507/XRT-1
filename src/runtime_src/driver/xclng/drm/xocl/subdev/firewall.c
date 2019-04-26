@@ -374,7 +374,7 @@ failed:
 }
 
 struct platform_device_id firewall_id_table[] = {
-	{ XOCL_FIREWALL, 0 },
+	{ XOCL_DEVNAME(XOCL_FIREWALL), 0 },
 	{ },
 };
 

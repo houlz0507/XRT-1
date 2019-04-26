@@ -368,7 +368,7 @@ static int feature_rom_remove(struct platform_device *pdev)
 }
 
 struct platform_device_id rom_id_table[] =  {
-	{ XOCL_FEATURE_ROM, 0 },
+	{ XOCL_DEVNAME(XOCL_FEATURE_ROM), 0 },
 	{ },
 };
 
@@ -376,7 +376,7 @@ static struct platform_driver	feature_rom_driver = {
 	.probe		= feature_rom_probe,
 	.remove		= feature_rom_remove,
 	.driver		= {
-		.name = XOCL_FEATURE_ROM,
+		.name = XOCL_FEATURE_ROM SUBDEV_SUFFIX,
 	},
 	.id_table = rom_id_table,
 };

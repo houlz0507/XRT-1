@@ -336,7 +336,7 @@ static int xlnx_dna_remove(struct platform_device *pdev)
 }
 
 struct platform_device_id xlnx_dna_id_table[] = {
-	{ XOCL_DNA, 0 },
+	{ XOCL_DEVNAME(XOCL_DNA), 0 },
 	{ },
 };
 

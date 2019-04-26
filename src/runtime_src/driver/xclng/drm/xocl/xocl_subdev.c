@@ -29,6 +29,7 @@ struct xocl_subdev_array {
 static DEFINE_IDA(xocl_dev_minor_ida);
 
 static DEFINE_IDA(subdev_multi_inst_ida);
+
 static struct xocl_dsa_vbnv_map dsa_vbnv_map[] = {
 	XOCL_DSA_VBNV_MAP
 };
@@ -41,6 +42,7 @@ static struct platform_device *xocl_register_subdev(xdev_handle_t xdev_hdl,
 	struct xocl_subdev_private *priv;
 	resource_size_t iostart;
 	struct resource *res;
+	char devname[64];
 	int sdev_id;
 	int i, retval;
 
@@ -53,11 +55,13 @@ static struct platform_device *xocl_register_subdev(xdev_handle_t xdev_hdl,
 		sdev_id = XOCL_DEV_ID(core->pdev);
 	}
 
-	xocl_info(&core->pdev->dev, "creating subdev %s", sdev_info->name);
-	pldev = platform_device_alloc(sdev_info->name, sdev_id);
+	snprintf(devname, sizeof(devname) - 1, "%s"SUBDEV_SUFFIX,
+			sdev_info->name);
+	xocl_info(&core->pdev->dev, "creating subdev %s", devname);
+	pldev = platform_device_alloc(devname, sdev_id);
 	if (!pldev) {
 		xocl_err(&core->pdev->dev, "failed to alloc device %s",
-			sdev_info->name);
+			devname);
 		retval = -ENOMEM;
 		goto error;
 	}
@@ -190,11 +194,15 @@ int xocl_subdev_create_one(xdev_handle_t xdev_hdl,
 	u32	id = sdev_info->id;
 	int	ret = 0;
 
-	if (core->subdevs[id].pldev)
+	if (core->subdevs[id])
 		return 0;
 
-	core->subdevs[id].pldev = xocl_register_subdev(core, sdev_info, false);
-	if (!core->subdevs[id].pldev) {
+	core->subdevs[id] = kzalloc(sizeof(*core->subdevs[0]), GFP_KERNEL);
+	if (!core->subdevs[id])
+		return -ENOMEM;
+
+	core->subdevs[id]->pldev = xocl_register_subdev(core, sdev_info, false);
+	if (!core->subdevs[id]->pldev) {
 		xocl_err(&pdev->dev, "failed to register subdev %s",
 			sdev_info->name);
 		ret = -EINVAL;
@@ -205,7 +213,7 @@ int xocl_subdev_create_one(xdev_handle_t xdev_hdl,
 	 * failed, it could be this device is not detected on the board.
 	 * delete the device.
 	 */
-	ret = device_attach(&core->subdevs[id].pldev->dev);
+	ret = device_attach(&core->subdevs[id]->pldev->dev);
 	if (ret != 1) {
 		xocl_err(&pdev->dev, "failed to probe subdev %s, ret %d",
 			sdev_info->name, ret);
@@ -311,8 +319,11 @@ int xocl_subdev_create_all(xdev_handle_t xdev_hdl,
 	/* create subdevices */
 	for (i = 0; i < core->subdev_num; i++) {
 		id = sdev_info[i].id;
-		if (core->subdevs[id].pldev)
+		if (core->subdevs[id]) {
+			xocl_xdev_err(xdev_hdl, "subdevice %d already created",
+					sdev_info[i].id);
 			continue;
+		}
 
 		ret = xocl_subdev_create_one(xdev_hdl, &sdev_info[i]);
 		if (ret)
@@ -332,10 +343,12 @@ void xocl_subdev_destroy_one(xdev_handle_t xdev_hdl, uint32_t subdev_id)
 
 	if (subdev_id==INVALID_SUBDEVICE)
 		return;
-	if (core->subdevs[subdev_id].pldev) {
-		device_release_driver(&core->subdevs[subdev_id].pldev->dev);
-		platform_device_unregister(core->subdevs[subdev_id].pldev);
-		core->subdevs[subdev_id].pldev = NULL;
+	if (core->subdevs[subdev_id]) {
+		device_release_driver(&core->subdevs[subdev_id]->pldev->dev);
+		platform_device_unregister(core->subdevs[subdev_id]->pldev);
+		xocl_fdt_unlink_node(xdev_hdl, core->subdevs[subdev_id]);
+		kfree(core->subdevs[subdev_id]);
+		core->subdevs[subdev_id] = NULL;
 	}
 }
 
@@ -398,8 +411,12 @@ static void xocl_subdev_destroy_common(xdev_handle_t xdev_hdl,
 		if (priv->is_multi)
 			ida_simple_remove(&subdev_multi_inst_ida,
 				subdevs->pldevs[i]->id);
-		else
-			core->subdevs[subdevs->id].pldev = NULL;
+		else {
+			xocl_fdt_unlink_node(xdev_hdl,
+					core->subdevs[subdevs->id]);
+			kfree(core->subdevs[subdevs->id]);
+			core->subdevs[subdevs->id] = NULL;
+		}
 		device_release_driver(&subdevs->pldevs[i]->dev);
 		platform_device_unregister(subdevs->pldevs[i]);
 	}
@@ -450,7 +467,7 @@ void xocl_subdev_register(struct platform_device *pldev, u32 id,
 	core = xocl_get_xdev(pldev);
 	BUG_ON(!core);
 
-	core->subdevs[id].ops = cb_funcs;
+	core->subdevs[id]->ops = cb_funcs;
 }
 
 xdev_handle_t xocl_get_xdev(struct platform_device *pdev)
@@ -534,6 +551,7 @@ err:
 
 	return -EINVAL;
 }
+
 
 int xocl_alloc_dev_minor(xdev_handle_t xdev_hdl)
 {

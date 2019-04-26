@@ -1050,7 +1050,7 @@ static int xiic_remove(struct platform_device *pdev)
 }
 
 struct platform_device_id xiic_id_table[] = {
-	{ XOCL_XIIC, 0 },
+	{ XOCL_DEVNAME(XOCL_XIIC), 0 },
 	{ },
 };
 

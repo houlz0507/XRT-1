@@ -871,6 +871,8 @@ static int xclmgmt_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto err_alloc;
 	}
 
+	INIT_LIST_HEAD(&lro->core.subdev_list);
+
 	/* create a device to driver reference */
 	dev_set_drvdata(&pdev->dev, lro);
 	/* create a driver to device reference */
@@ -974,6 +976,9 @@ static void xclmgmt_remove(struct pci_dev *pdev)
 	pci_disable_device(pdev);
 
 	xocl_free_dev_minor(lro);
+
+	if (lro->core.fdt_blob)
+		vfree(lro->core.fdt_blob);
 
 	dev_set_drvdata(&pdev->dev, NULL);
 

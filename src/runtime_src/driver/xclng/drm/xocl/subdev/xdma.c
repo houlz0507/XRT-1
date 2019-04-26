@@ -478,7 +478,7 @@ static int xdma_remove(struct platform_device *pdev)
 }
 
 static struct platform_device_id xdma_id_table[] = {
-	{ XOCL_XDMA, 0 },
+	{ XOCL_DEVNAME(XOCL_XDMA), 0 },
 	{ },
 };
 

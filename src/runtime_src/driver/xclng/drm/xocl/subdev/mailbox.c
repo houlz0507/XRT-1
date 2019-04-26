@@ -1920,7 +1920,7 @@ failed:
 }
 
 struct platform_device_id mailbox_id_table[] = {
-	{ XOCL_MAILBOX, 0 },
+	{ XOCL_DEVNAME(XOCL_MAILBOX), 0 },
 	{ },
 };
 

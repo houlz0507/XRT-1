@@ -3440,7 +3440,7 @@ static int mb_scheduler_remove(struct platform_device *pdev)
 }
 
 static struct platform_device_id mb_sche_id_table[] = {
-	{ XOCL_MB_SCHEDULER, 0 },
+	{ XOCL_DEVNAME(XOCL_MB_SCHEDULER), 0 },
 	{ },
 };
 

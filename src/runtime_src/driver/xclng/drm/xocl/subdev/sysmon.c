@@ -360,7 +360,7 @@ static int sysmon_remove(struct platform_device *pdev)
 }
 
 struct platform_device_id sysmon_id_table[] = {
-	{ XOCL_SYSMON, 0 },
+	{ XOCL_DEVNAME(XOCL_SYSMON), 0 },
 	{ },
 };
 

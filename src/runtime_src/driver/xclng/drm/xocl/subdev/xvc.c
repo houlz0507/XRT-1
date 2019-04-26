@@ -427,8 +427,8 @@ static int xvc_remove(struct platform_device *pdev)
 }
 
 struct platform_device_id xvc_id_table[] = {
-	{ XOCL_XVC_PUB, MINOR_PUB_HIGH_BIT },
-	{ XOCL_XVC_PRI, MINOR_PRI_HIGH_BIT },
+	{ XOCL_DEVNAME(XOCL_XVC_PUB), MINOR_PUB_HIGH_BIT },
+	{ XOCL_DEVNAME(XOCL_XVC_PRI), MINOR_PRI_HIGH_BIT },
 	{ },
 };
 
