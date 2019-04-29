@@ -43,6 +43,7 @@ enum {
         XOCL_DSAFLAG_SET_DSA_VER =              0x08,
         XOCL_DSAFLAG_SET_XPR =                  0x10,
         XOCL_DSAFLAG_MFG =                      0x20,
+	XOCL_DSAFLAG_DYNAMIC_IP =		0x200,
 };
 
 #define	FLASH_TYPE_SPI	"spi"
@@ -55,6 +56,7 @@ struct xocl_subdev_info {
         int			num_res;
 	void			*priv_data;
 	int			data_len;
+	int			bar_idx;
 };
 
 struct xocl_board_private {
@@ -922,6 +924,21 @@ struct xocl_subdev_map {
 		.flash_type = FLASH_TYPE_SPI,				\
 	}
 
+#define MGMT_RES_DYNAMIC_IP						\
+		((struct xocl_subdev_info []) {				\
+			XOCL_DEVINFO_FEATURE_ROM,			\
+			XOCL_DEVINFO_MAILBOX_MGMT,			\
+			XOCL_DEVINFO_FMGR,      			\
+		})
+
+#define	XOCL_BOARD_MGMT_DYNAMIC_IP					\
+	(struct xocl_board_private){					\
+		.flags		= XOCL_DSAFLAG_DYNAMIC_IP,		\
+		.subdev_info	= MGMT_RES_DYNAMIC_IP,			\
+		.subdev_num = ARRAY_SIZE(MGMT_RES_DYNAMIC_IP),		\
+		.flash_type = FLASH_TYPE_SPI,				\
+	}
+
 #define	XOCL_MGMT_PCI_IDS						\
 	{ XOCL_PCI_DEVID(0x10EE, 0x4A47, PCI_ANY_ID, MGMT_DEFAULT) },	\
 	{ XOCL_PCI_DEVID(0x10EE, 0x4A87, PCI_ANY_ID, MGMT_DEFAULT) },	\
@@ -950,7 +967,7 @@ struct xocl_subdev_map {
 	{ XOCL_PCI_DEVID(0x10EE, 0x788F, 0x4352, MGMT_XBB_DSA52) },	\
 	{ XOCL_PCI_DEVID(0x10EE, 0x798F, 0x4352, MGMT_XBB_DSA52) },	\
 	{ XOCL_PCI_DEVID(0x10EE, 0x6A8F, 0x4353, MGMT_6A8F_DSA52) },	\
-	{ XOCL_PCI_DEVID(0x10EE, 0x5000, PCI_ANY_ID, MGMT_XBB_DSA52) },	\
+	{ XOCL_PCI_DEVID(0x10EE, 0x5000, PCI_ANY_ID, MGMT_DYNAMIC_IP) },\
 	{ XOCL_PCI_DEVID(0x10EE, 0x5004, PCI_ANY_ID, MGMT_XBB_DSA52) },	\
 	{ XOCL_PCI_DEVID(0x10EE, 0x5008, PCI_ANY_ID, MGMT_XBB_DSA52) },	\
 	{ XOCL_PCI_DEVID(0x13FE, 0x006C, PCI_ANY_ID, MGMT_6A8F) },	\

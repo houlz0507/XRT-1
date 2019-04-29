@@ -768,14 +768,16 @@ static void xclmgmt_extended_probe(struct xclmgmt_dev *lro)
 	 * Workaround needed on some platforms. Will clear out any stale
 	 * data after the platform has been reset
 	 */
-	ret = xocl_subdev_create_one(lro,
-		&(struct xocl_subdev_info)XOCL_DEVINFO_AF);
-	if (ret) {
-		xocl_err(&pdev->dev, "failed to register firewall\n");
-		goto fail_firewall;
+	if (!(dev_info->flags & XOCL_DSAFLAG_DYNAMIC_IP)) {
+		ret = xocl_subdev_create_one(lro,
+			&(struct xocl_subdev_info)XOCL_DEVINFO_AF);
+		if (ret) {
+			xocl_err(&pdev->dev, "failed to register firewall\n");
+			goto fail_firewall;
+		}
+		if (dev_info->flags & XOCL_DSAFLAG_AXILITE_FLUSH)
+			platform_axilite_flush(lro);
 	}
-	if (dev_info->flags & XOCL_DSAFLAG_AXILITE_FLUSH)
-		platform_axilite_flush(lro);
 
 	ret = xocl_subdev_create_all(lro, dev_info->subdev_info,
 		dev_info->subdev_num);
@@ -872,6 +874,7 @@ static int xclmgmt_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	}
 
 	INIT_LIST_HEAD(&lro->core.subdev_list);
+	mutex_init(&lro->core.lock);
 
 	/* create a device to driver reference */
 	dev_set_drvdata(&pdev->dev, lro);
@@ -976,6 +979,10 @@ static void xclmgmt_remove(struct pci_dev *pdev)
 	pci_disable_device(pdev);
 
 	xocl_free_dev_minor(lro);
+
+	mutex_lock(&lro->core.lock);
+        xocl_fdt_remove_subdevs(lro, &lro->core.subdev_list);
+        mutex_unlock(&lro->core.lock);
 
 	if (lro->core.fdt_blob)
 		vfree(lro->core.fdt_blob);

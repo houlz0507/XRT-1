@@ -215,6 +215,7 @@ static ssize_t dev_offline_store(struct device *dev,
 		xocl_drvinst_offline(lro, true);
 		ret = health_thread_stop(lro);
 		if (ret) {
+			device_unlock(dev);
 			xocl_err(dev, "stop health thread failed");
 			return -EIO;
 		}
@@ -223,11 +224,13 @@ static ssize_t dev_offline_store(struct device *dev,
 		ret = xocl_subdev_create_all(lro, lro->core.priv.subdev_info,
 			lro->core.priv.subdev_num);
 		if (ret) {
+			device_unlock(dev);
 			xocl_err(dev, "Online subdevices failed");
 			return -EIO;
 		}
 		ret = health_thread_start(lro);
 		if (ret) {
+			device_unlock(dev);
 			xocl_err(dev, "start health thread failed");
 			return -EIO;
 		}

@@ -691,6 +691,8 @@ int xocl_userpf_probe(struct pci_dev *pdev,
 	pci_set_drvdata(pdev, xdev);
 	dev_info = (struct xocl_board_private *)ent->driver_data;
 
+	INIT_LIST_HEAD(&xdev->core.subdev_list);
+	mutex_init(&xdev->core.lock);
 	xdev->core.pci_ops = &userpf_pci_ops;
 	xdev->core.pdev = pdev;
 	INIT_DELAYED_WORK(&xdev->core.reset_work, xocl_reset_work);

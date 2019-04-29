@@ -233,6 +233,7 @@ static ssize_t dev_offline_store(struct device *dev,
 		ret = xocl_subdev_create_all(xdev, xdev->core.priv.subdev_info,
 				xdev->core.priv.subdev_num);
 		if (ret) {
+			device_unlock(dev);
 			xocl_err(dev, "Online subdevices failed");
 			return -EIO;
 		}
