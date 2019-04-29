@@ -448,7 +448,13 @@ XclBin::findAndReadMirrorData(std::fstream& _istream, boost::property_tree::ptre
     XUtil::TRACE(XUtil::format("Found MIRROR_DATA_START at offset: 0x%lx", startOffset));
     startOffset += MIRROR_DATA_START.length();
   }  else {
-    std::string errMsg = "ERROR: Mirror backup data not found in given file.";
+    std::string errMsg;
+    errMsg  = "ERROR: Mirror backup data not found in given file.\n"; 
+    errMsg += "       The given archive image does not contain any metadata to\n";
+    errMsg += "       migrate the data image to the current format.\n";
+    errMsg += "       The lack of metadata is usually the result of attempting\n";
+    errMsg += "       to migrate a pre-2018.3 archive.";
+                          
     throw std::runtime_error(errMsg);
   }
 
@@ -1027,9 +1033,17 @@ XclBin::appendSections(ParameterSectionData &_PSD)
     }
 
     Section *pSection = findSection(eKind);
+
     if (pSection == nullptr) {
-      std::string errMsg = XUtil::format("ERROR: Section '%s' doesn't exists.  Must have an existing section in order to append.", pSection->getSectionKindAsString().c_str());
-      throw std::runtime_error(errMsg);
+      Section *pTempSection = Section::createSectionObjectOfKind(eKind);
+
+      // Add DTC exception. Only for 2019.1
+      if (eKind == DTC) {
+        pSection = pTempSection;
+      } else {
+        std::string errMsg = XUtil::format("ERROR: Section '%s' doesn't exists for JSON key '%s'.  Must have an existing section in order to append.", pTempSection->getSectionKindAsString().c_str(), sectionName.c_str());
+        throw std::runtime_error(errMsg);
+      }
     }
 
     boost::property_tree::ptree ptPayload;

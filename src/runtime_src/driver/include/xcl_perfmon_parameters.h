@@ -37,7 +37,7 @@
 #define AXI_FIFO_SRR                    0x28
 #define AXI_FIFO_RESET_VALUE            0xA5
 
-/************************ SDx Performance Monitor (SPM) ***********************/
+/************************ AXI Interface Monitor (AIM, earlier SPM) ***********************/
 
 /* Address offsets in core */
 #define XSPM_CONTROL_OFFSET                          0x08
@@ -99,7 +99,7 @@
 #define XSPM_HOST_PROPERTY_MASK                  0x4
 #define XSPM_64BIT_PROPERTY_MASK                 0x8
 
-/************************ SDx Accelerator Monitor (SAM) ************************/
+/************************ Accelerator Monitor (AM, earlier SAM) ************************/
 
 #define XSAM_CONTROL_OFFSET                          0x08
 #define XSAM_TRACE_CTRL_OFFSET                       0x10
@@ -120,22 +120,32 @@
 #define XSAM_ACCEL_MIN_EXECUTION_CYCLES_UPPER_OFFSET 0xB4
 #define XSAM_ACCEL_MAX_EXECUTION_CYCLES_UPPER_OFFSET 0xB8
 #define XSAM_ACCEL_TOTAL_CU_START_UPPER_OFFSET       0xbc
+#define XSAM_BUSY_CYCLES_OFFSET                      0xC0
+#define XSAM_BUSY_CYCLES_UPPER_OFFSET                0xC4
+#define XSAM_MAX_PARALLEL_ITER_OFFSET                0xC8
+#define XSAM_MAX_PARALLEL_ITER_UPPER_OFFSET          0xCC
 
 /* SAM Trace Control Masks */
 #define XSAM_TRACE_STALL_SELECT_MASK    0x0000001c
+#define XSAM_COUNTER_RESET_MASK         0x00000002
+#define XSAM_DATAFLOW_EN_MASK           0x00000008
 
 /* Debug IP layout properties mask bits */
 #define XSAM_STALL_PROPERTY_MASK        0x4
 #define XSAM_64BIT_PROPERTY_MASK        0x8
 
-/************************** SDx AXI Stream Monitor (SSPM) *********************/
+/************************** AXI Stream Monitor (ASM, earlier SSPM) *********************/
 
+#define XSSPM_CONTROL_OFFSET           0x0
 #define XSSPM_SAMPLE_OFFSET            0x20
 #define XSSPM_NUM_TRANX_OFFSET         0x80
 #define XSSPM_DATA_BYTES_OFFSET        0x88
 #define XSSPM_BUSY_CYCLES_OFFSET       0x90
 #define XSSPM_STALL_CYCLES_OFFSET      0x98
 #define XSSPM_STARVE_CYCLES_OFFSET     0xA0
+
+/* SSPM Control Mask */
+#define XSSPM_COUNTER_RESET_MASK       0x00000001
 
 /********************* AXI Stream Protocol Checker (SPC) *********************/
 

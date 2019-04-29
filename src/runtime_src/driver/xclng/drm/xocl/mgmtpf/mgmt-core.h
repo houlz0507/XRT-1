@@ -111,8 +111,12 @@ struct xclmgmt_dev {
 	int msix_user_start_vector;
 	bool ready;
 
+
 	char *bin_buffer;
 	size_t bin_length;
+
+	/* ID set on mgmt and passed to user for inter-domain communication */
+	u64 comm_id;
 };
 
 extern int health_check;
@@ -125,7 +129,6 @@ void device_info(struct xclmgmt_dev *lro, struct xclmgmt_ioc_info *obj);
 long mgmt_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);
 void get_pcie_link_info(struct xclmgmt_dev *lro,
 	unsigned short *width, unsigned short *speed, bool is_cap);
-void xclmgmt_chan_switch_notify(struct xclmgmt_dev *lro);
 
 /* utils.c */
 unsigned compute_unit_busy(struct xclmgmt_dev *lro);
@@ -145,6 +148,9 @@ bool xclmgmt_check_proc(struct xclmgmt_dev *lro, struct pid *pid);
 
 /* mgmt-xvc.c */
 long xvc_ioctl(struct xclmgmt_dev *lro, const void __user *arg);
+
+int __init xocl_init_nifd(void);
+void xocl_fini_nifd(void);
 
 /* mgmt-sysfs.c */
 int mgmt_init_sysfs(struct device *dev);

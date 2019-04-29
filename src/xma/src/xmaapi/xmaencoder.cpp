@@ -129,7 +129,9 @@ xma_enc_plugins_load(XmaSystemCfg      *systemcfg,
 XmaEncoderSession*
 xma_enc_session_create(XmaEncoderProperties *enc_props)
 {
-    XmaEncoderSession *enc_session = malloc(sizeof(XmaEncoderSession));
+    XmaEncoderSession *enc_session = (XmaEncoderSession*) malloc(sizeof(XmaEncoderSession));
+    if (enc_session == NULL)
+        return NULL;
     XmaResources xma_shm_cfg = g_xma_singleton->shm_res_cfg;
     XmaKernelRes kern_res;
     int rc, dev_handle, kern_handle, enc_handle;
@@ -161,6 +163,7 @@ xma_enc_session_create(XmaEncoderProperties *enc_props)
     if (rc) {
         xma_logmsg(XMA_ERROR_LOG, XMA_ENCODER_MOD,
                    "Failed to allocate free encoder kernel. Return code %d\n", rc);
+        free(enc_session);
         return NULL;
     }
 
@@ -168,18 +171,24 @@ xma_enc_session_create(XmaEncoderProperties *enc_props)
 
     dev_handle = xma_res_dev_handle_get(kern_res);
     xma_logmsg(XMA_INFO_LOG, XMA_ENCODER_MOD,"dev_handle = %d\n", dev_handle);
-    if (dev_handle < 0)
+    if (dev_handle < 0) {
+        free(enc_session);
         return NULL;
+    }
 
     kern_handle = xma_res_kern_handle_get(kern_res);
     xma_logmsg(XMA_INFO_LOG, XMA_ENCODER_MOD,"kern_handle = %d\n", kern_handle);
-    if (kern_handle < 0)
+    if (kern_handle < 0) {
+        free(enc_session);
         return NULL;
+    }
 
     enc_handle = xma_res_plugin_handle_get(kern_res);
     xma_logmsg(XMA_INFO_LOG, XMA_ENCODER_MOD,"enc_handle = %d\n", enc_handle);
-    if (enc_handle < 0)
+    if (enc_handle < 0) {
+        free(enc_session);
         return NULL;
+    }
 
     XmaHwCfg *hwcfg = &g_xma_singleton->hwcfg;
     XmaHwHAL *hal = (XmaHwHAL*)hwcfg->devices[dev_handle].handle;
@@ -191,7 +200,7 @@ xma_enc_session_create(XmaEncoderProperties *enc_props)
         hwcfg->devices[dev_handle].kernels[kern_handle].ddr_bank;
 
     //For execbo:
-    enc_session->base.hw_session.kernel_info = hwcfg->devices[dev_handle].kernels[kern_handle];
+    enc_session->base.hw_session.kernel_info = &hwcfg->devices[dev_handle].kernels[kern_handle];
     enc_session->base.hw_session.dev_index = hal->dev_index;
 
     enc_session->encoder_plugin = &g_xma_singleton->encodercfg[enc_handle];
@@ -203,7 +212,7 @@ xma_enc_session_create(XmaEncoderProperties *enc_props)
     // For the encoder, only a receiver connection make sense
     // because no HW component consumes an encoded frame at
     // this point in a pipeline
-    XmaEndpoint *end_pt = malloc(sizeof(XmaEndpoint));
+    XmaEndpoint *end_pt = (XmaEndpoint*) malloc(sizeof(XmaEndpoint));
     end_pt->session = &enc_session->base;
     end_pt->dev_id = dev_handle;
     end_pt->format = enc_props->format;
@@ -219,6 +228,9 @@ xma_enc_session_create(XmaEncoderProperties *enc_props)
         xma_logmsg(XMA_ERROR_LOG, XMA_ENCODER_MOD,
                    "Initalization of encoder plugin failed. Return code %d\n",
                    rc);
+        free(enc_session->base.plugin_data);
+        xma_connect_free(enc_session->conn_recv_handle, XMA_CONNECT_RECEIVER);
+        free(enc_session);
         return NULL;
     }
 
@@ -314,7 +326,7 @@ xma_enc_session_recv_data(XmaEncoderSession *session,
 void 
 xma_enc_session_statsfile_init(XmaEncoderSession *session)
 {
-    char            *path = "/var/tmp/xilinx";
+    char            *path = (char*) "/var/tmp/xilinx";
     char            *enc_type_str;
     char            *vendor;
     int32_t          dev_id = 0;
@@ -323,28 +335,33 @@ xma_enc_session_statsfile_init(XmaEncoderSession *session)
     char             fname[100];
     XmaEncoderStats *stats;
 
-    stats = malloc(sizeof(XmaEncoderStats));
+    stats = (XmaEncoderStats*) malloc(sizeof(XmaEncoderStats));
+	if (stats == NULL) {
+        xma_logmsg(XMA_ERROR_LOG, XMA_ENCODER_MOD,
+                   "Unable to initialize encoder stats file\n");
+		return;
+    }
 
     // Convert encoder type to string
     switch(session->encoder_props.hwencoder_type)
     {
         case XMA_H264_ENCODER_TYPE:
-            enc_type_str = "H264";
+            enc_type_str = (char*) "H264";
         break;
         case XMA_HEVC_ENCODER_TYPE:
-            enc_type_str = "HEVC";
+            enc_type_str = (char*) "HEVC";
         break;
         case XMA_VP9_ENCODER_TYPE:
-            enc_type_str = "VP9";
+            enc_type_str = (char*) "VP9";
         break;
         case XMA_AV1_ENCODER_TYPE:
-            enc_type_str = "AV1";
+            enc_type_str = (char*) "AV1";
         break;
         case XMA_COPY_ENCODER_TYPE:
-            enc_type_str = "COPY";
+            enc_type_str = (char*) "COPY";
         break;
         default:
-            enc_type_str = "UNKNOWN";
+            enc_type_str = (char*) "UNKNOWN";
         break;
     }
 
@@ -423,12 +440,17 @@ void xma_enc_session_statsfile_write(XmaEncoderStats *stats)
             stats->encoded_frame_count,
             stats->encoded_bit_count);
 
-    // Always re-write the entire file
-    lseek(stats->fd, 0, SEEK_SET);
-    rc = write(stats->fd, stat_buf, strlen(stat_buf)); 
-    if (rc < 0)
+    if (stats->fd <= 0) {
         xma_logmsg(XMA_INFO_LOG, XMA_ENCODER_MOD, 
-                   "Write to statsfile failed\n");
+                   "statsfile failed to open\n");
+    } else {
+        // Always re-write the entire file
+        lseek(stats->fd, 0, SEEK_SET);
+        rc = write(stats->fd, stat_buf, strlen(stat_buf)); 
+        if (rc < 0)
+            xma_logmsg(XMA_INFO_LOG, XMA_ENCODER_MOD, 
+                    "Write to statsfile failed\n");
+    }
 }
 
 void 

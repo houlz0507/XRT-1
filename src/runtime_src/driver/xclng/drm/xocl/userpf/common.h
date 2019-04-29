@@ -156,8 +156,6 @@ int xocl_hot_reset_ioctl(struct drm_device *dev, void *data,
 	struct drm_file *filp);
 int xocl_reclock_ioctl(struct drm_device *dev, void *data,
 	struct drm_file *filp);
-int xocl_sw_mailbox_ioctl(struct drm_device *dev, void *data,
-	struct drm_file *filp);
 
 /* sysfs functions */
 int xocl_init_sysfs(struct device *dev);
@@ -175,10 +173,11 @@ void user_pci_reset_prepare(struct pci_dev *pdev);
 void user_pci_reset_done(struct pci_dev *pdev);
 #endif
 
-uint get_live_client_size(struct xocl_dev *xdev);
+u32 get_live_clients(struct xocl_dev *xdev, pid_t **pid_list);
 void reset_notify_client_ctx(struct xocl_dev *xdev);
 
 void get_pcie_link_info(struct xocl_dev	*xdev,
 	unsigned short *link_width, unsigned short *link_speed, bool is_cap);
+uint64_t xocl_get_data(struct xocl_dev *xdev, enum data_kind kind);
 int xocl_reclock(struct xocl_dev *xdev, void *data);
 #endif

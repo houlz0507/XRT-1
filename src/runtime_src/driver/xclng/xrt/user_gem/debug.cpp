@@ -36,6 +36,7 @@
 #include "scan.h"
 #include "driver/include/xcl_perfmon_parameters.h"
 #include "driver/include/xclbin.h"
+#include "driver/common/message.h"
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -72,6 +73,18 @@ namespace xocl {
     if (mIsDebugIpLayoutRead)
       return;
 
+    uint liveProcessesOnDevice = xclGetNumLiveProcesses();
+    if(liveProcessesOnDevice > 1) {
+      /* More than 1 process on device. Device Profiling for multi-process not supported yet.
+       */
+      std::string warnMsg = "Multiple live processes running on device. Hardware Debug and Profiling data will be unavailable for this process.";
+      std::cout << warnMsg << std::endl;
+      xrt_core::message::send(xrt_core::message::severity_level::WARNING, "XRT", warnMsg) ;
+      mIsDeviceProfiling = false;
+      mIsDebugIpLayoutRead = true;
+      return;
+    }
+
     //
     // Profiling - addresses and names
     // Parsed from debug_ip_layout.rtd contained in xclbin
@@ -96,7 +109,7 @@ namespace xocl {
     mPerfMonFifoCtrlBaseAddress = fifoCtrlBaseAddr;
 
     uint64_t fifoReadBaseAddr = XPAR_AXI_PERF_MON_0_TRACE_OFFSET_AXI_FULL2;
-    getIPCountAddrNames(AXI_MONITOR_FIFO_FULL, &fifoReadBaseAddr, &fifoName, nullptr, nullptr, nullptr, 1);
+    getIPCountAddrNames(AXI_MONITOR_FIFO_FULL, &fifoReadBaseAddr, &fifoName, &mTraceFifoProperties, nullptr, nullptr, 1);
     mPerfMonFifoReadBaseAddress = fifoReadBaseAddr;
 
     uint64_t traceFunnelAddr = 0x0;
@@ -160,7 +173,12 @@ namespace xocl {
           if (count >= size) break;
           if (map->m_debug_ip_data[i].m_type == type) {
             if(baseAddress)baseAddress[count] = map->m_debug_ip_data[i].m_base_address;
-            if(portNames)  portNames[count].assign(map->m_debug_ip_data[i].m_name, 128);
+            if(portNames) {
+              // Fill up string with 128 characters (padded with null characters)
+              portNames[count].assign(map->m_debug_ip_data[i].m_name, 128);
+              // Strip away extraneous null characters
+              portNames[count].assign(portNames[count].c_str());
+            }
             if(properties) properties[count] = map->m_debug_ip_data[i].m_properties;
             if(majorVersions) majorVersions[count] = map->m_debug_ip_data[i].m_major;
             if(minorVersions) minorVersions[count] = map->m_debug_ip_data[i].m_minor;
@@ -484,7 +502,6 @@ namespace xocl {
   }
 
 } // namespace xocl_gem
-
 
 size_t xclDebugReadIPStatus(xclDeviceHandle handle, xclDebugReadType type, void* debugResults)
 {

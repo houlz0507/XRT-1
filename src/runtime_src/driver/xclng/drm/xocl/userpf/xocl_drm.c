@@ -286,8 +286,6 @@ static const struct drm_ioctl_desc xocl_ioctls[] = {
 	DRM_IOCTL_DEF_DRV(XOCL_HOT_RESET, xocl_hot_reset_ioctl,
 			  DRM_AUTH|DRM_UNLOCKED|DRM_RENDER_ALLOW),
 	DRM_IOCTL_DEF_DRV(XOCL_RECLOCK, xocl_reclock_ioctl,
-	  DRM_AUTH|DRM_UNLOCKED|DRM_RENDER_ALLOW),
-	DRM_IOCTL_DEF_DRV(XOCL_SW_MAILBOX, xocl_sw_mailbox_ioctl,
 			  DRM_AUTH|DRM_UNLOCKED|DRM_RENDER_ALLOW),
 };
 
@@ -471,7 +469,7 @@ static int xocl_check_topology(struct xocl_drm *drm_p)
 		if (!topology->m_mem_data[i].m_used)
 			continue;
 
-		if (topology->m_mem_data[i].m_type == MEM_STREAMING)
+		if (XOCL_IS_STREAM(topology, i))
 			continue;
 
 		if (drm_p->mm_usage_stat[i]->bo_count != 0) {
@@ -533,7 +531,7 @@ int xocl_cleanup_mem(struct xocl_drm *drm_p)
 			if (!topology->m_mem_data[i].m_used)
 				continue;
 
-			if (topology->m_mem_data[i].m_type == MEM_STREAMING)
+			if (XOCL_IS_STREAM(topology, i))
 				continue;
 
 			xocl_info(drm_p->ddev->dev, "Taking down DDR : %d", i);
@@ -616,7 +614,7 @@ int xocl_init_mem(struct xocl_drm *drm_p)
 		mem_data = &topo->m_mem_data[i];
 		ddr_bank_size = mem_data->m_size * 1024;
 
-		xocl_info(drm_p->ddev->dev, "  Mem Index %d", i);
+		xocl_info(drm_p->ddev->dev, "  Memory Bank: %s", mem_data->m_tag);
 		xocl_info(drm_p->ddev->dev, "  Base Address:0x%llx",
 			mem_data->m_base_address);
 		xocl_info(drm_p->ddev->dev, "  Size:0x%lx", ddr_bank_size);
@@ -631,12 +629,12 @@ int xocl_init_mem(struct xocl_drm *drm_p)
 		if (!mem_data->m_used)
 			continue;
 
-		if (mem_data->m_type == MEM_STREAMING ||
-			mem_data->m_type == MEM_STREAMING_CONNECTION)
+		if (XOCL_IS_STREAM(topo, i))
 			continue;
 
 		ddr_bank_size = mem_data->m_size * 1024;
-		xocl_info(drm_p->ddev->dev, "Allocating DDR bank%d", i);
+
+		xocl_info(drm_p->ddev->dev, "Allocating Memory Bank: %s", mem_data->m_tag);
 		xocl_info(drm_p->ddev->dev, "  base_addr:0x%llx, total size:0x%lx",
 			mem_data->m_base_address, ddr_bank_size);
 

@@ -210,11 +210,7 @@ static inline int check_bo_user_reqs(const struct drm_device *dev,
 	u16 ddr_count;
 	unsigned ddr;
 
-#if 0
-	if (flags == 0xffffff)
-		return 0;
-#endif
-	if (type == DRM_XOCL_BO_EXECBUF)
+	if (type == DRM_XOCL_BO_EXECBUF || type == DRM_XOCL_BO_IMPORT)
 		return 0;
 #ifdef XOCL_CMA_ALLOC
 	if (type == DRM_XOCL_BO_CMA)
@@ -233,11 +229,17 @@ static inline int check_bo_user_reqs(const struct drm_device *dev,
 	ddr = xocl_bo_ddr_idx(flags);
 	if (ddr >= ddr_count)
 		return -EINVAL;
-	if (XOCL_MEM_TOPOLOGY(xdev)->m_mem_data[ddr].m_type == MEM_STREAMING)
-		return -EINVAL;
-	if (!XOCL_IS_DDR_USED(xdev, ddr)) {
-		userpf_err(xdev, "Bank %d is marked as unused in axlf", ddr);
-		return -EINVAL;
+
+	if (XOCL_MEM_TOPOLOGY(xdev)) {
+		if (XOCL_IS_STREAM(XOCL_MEM_TOPOLOGY(xdev), ddr)) {
+			userpf_err(xdev, "Bank %d is Stream", ddr);
+			return -EINVAL;
+		}
+		if (!XOCL_IS_DDR_USED(xdev, ddr)) {
+			userpf_err(xdev,
+				"Bank %d is marked as unused in axlf", ddr);
+			return -EINVAL;
+		}
 	}
 	return 0;
 }

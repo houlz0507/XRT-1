@@ -179,7 +179,7 @@ public:
   /**
    * Execute this command
    */
-  void
+  int
   execute();
 
   /**
@@ -213,6 +213,12 @@ public:
    */
   virtual void
   done() const {}
+
+  /**
+   * Client call back for command error
+   */
+  virtual void
+  error(const std::exception&) const {}
 
 public:
 

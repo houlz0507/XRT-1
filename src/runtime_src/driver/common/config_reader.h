@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2016-2017 Xilinx, Inc
+ * Copyright (C) 2016-2019 Xilinx, Inc
  *
  * Licensed under the Apache License, Version 2.0 (the "License"). You may
  * not use this file except in compliance with the License. A copy of the
@@ -14,11 +14,13 @@
  * under the License.
  */
 
-#ifndef xrt_device_config_reader_h_
-#define xrt_device_config_reader_h_
+#ifndef xrtcore_config_reader_h_
+#define xrtcore_config_reader_h_
 
 #include <string>
 #include <iosfwd>
+
+#include <boost/property_tree/ptree_fwd.hpp>
 
 namespace xrt_core { namespace config {
 
@@ -59,10 +61,12 @@ namespace detail {
  * Raw uncached accessors, should not be used
  * See xrt/test/util/tconfig.cpp for unit test
  */
-bool          get_bool_value(const char*, bool);
-const char*   get_env_value(const char*);
-std::string   get_string_value(const char*, const std::string&);
-unsigned int  get_uint_value(const char*, unsigned int);
+bool                               get_bool_value(const char*, bool);
+const char*                        get_env_value(const char*);
+std::string                        get_string_value(const char*, const std::string&);
+unsigned int                       get_uint_value(const char*, unsigned int);
+/* API to return a fragment of ptree. Currently used by emulation drivers */
+const boost::property_tree::ptree& get_ptree_value(const char*);
 std::ostream& debug(std::ostream&, const std::string& ini="");
 
 }
@@ -148,14 +152,14 @@ get_api_checks()
 inline std::string
 get_logging()
 {
-  static std::string value = detail::get_string_value("Runtime.runtime_log","null");
+  static std::string value = detail::get_string_value("Runtime.runtime_log","console");
   return value;
 }
 
 inline unsigned int
 get_verbosity()
 {
-  static unsigned int value = detail::get_uint_value("Runtime.verbosity",0);
+  static unsigned int value = detail::get_uint_value("Runtime.verbosity",4);
   return value;
 }
 
@@ -183,7 +187,7 @@ get_hal_logging()
 inline bool
 get_multiprocess()
 {
-  static bool value = detail::get_bool_value("Runtime.multiprocess",false);
+  static bool value = detail::get_bool_value("Runtime.multiprocess",true);
   return value;
 }
 

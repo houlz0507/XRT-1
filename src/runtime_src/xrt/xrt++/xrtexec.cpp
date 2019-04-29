@@ -19,6 +19,20 @@
 
 namespace xrtcpp {
 
+void
+acquire_cu_context(xrt_device* device, value_type cuidx)
+{
+  auto xdevice = static_cast<xrt::device*>(device);
+  xdevice->acquire_cu_context(cuidx,true);
+}
+
+void
+release_cu_context(xrt_device* device, value_type cuidx)
+{
+  auto xdevice = static_cast<xrt::device*>(device);
+  xdevice->release_cu_context(cuidx);
+}
+
 namespace exec {
 
 struct command::impl : xrt::command
@@ -38,11 +52,11 @@ command(xrt_device* device, ert_cmd_opcode opcode)
   : m_impl(std::make_shared<impl>(static_cast<xrt::device*>(device),opcode))
 {}
 
-void
+int
 command::
 execute()
 {
-  m_impl->execute();
+  return m_impl->execute();
 }
 
 void
@@ -75,9 +89,6 @@ add_cu(value_type cuidx)
     throw std::runtime_error("write_command supports at most 32 CUs");
   auto skcmd = reinterpret_cast<ert_start_kernel_cmd*>(m_impl->ecmd);
   skcmd->cu_mask |= 1<<cuidx;
-
-  auto xdevice = m_impl->get_device();
-  xdevice->acquire_cu_context(cuidx,true);
 }
 
 void
@@ -86,6 +97,18 @@ add(addr_type addr, value_type value)
 {
   (*m_impl)[++m_impl->ecmd->count] = addr;
   (*m_impl)[++m_impl->ecmd->count] = value;
+}
+
+void
+exec_write_command::
+clear()
+{
+  // clear cu
+  auto skcmd = reinterpret_cast<ert_start_kernel_cmd*>(m_impl->ecmd);
+  skcmd->cu_mask = 0;
+
+  // clear payload
+  m_impl->ecmd->count = 1+4; // cumask + 4 ctrl
 }
 
 }} // exec,xrt

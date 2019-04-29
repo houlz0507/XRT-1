@@ -93,6 +93,7 @@ namespace xdp {
         HBM_DEVICE,
         KDMA_DEVICE,
         P2P_DEVICE,
+        P2P_HOST_TRANSFERS,
         PORT_BIT_WIDTH,
         KERNEL_COUNT,
         OBJECTS_RELEASED
@@ -153,6 +154,7 @@ namespace xdp {
       virtual unsigned getProfileSlotProperties(xclPerfMonType type,
                                                 std::string& deviceName,
                                                 unsigned slotnum) = 0;
+      virtual bool isAPCtrlChain(const std::string& deviceName, const std::string& cu) = 0;
 
     protected:
       std::map<std::string, std::string> mComputeUnitKernelTraceMap;

@@ -31,8 +31,20 @@ namespace xdp {
     case READ_BUFFER:
       commandString = "READ_BUFFER";
       break;
+    case READ_BUFFER_P2P:
+      commandString = "READ_BUFFER_P2P";
+      break;
     case WRITE_BUFFER:
       commandString = "WRITE_BUFFER";
+      break;
+    case WRITE_BUFFER_P2P:
+      commandString = "WRITE_BUFFER_P2P";
+      break;
+    case COPY_BUFFER:
+      commandString = "COPY_BUFFER";
+      break;
+    case COPY_BUFFER_P2P:
+      commandString = "COPY_BUFFER_P2P";
       break;
     case EXECUTE_KERNEL:
       commandString = "KERNEL";
@@ -102,7 +114,7 @@ namespace xdp {
       monitorString = "Host to Device";
       break;
     case MON_SHELL_P2P:
-      monitorString = "Device to Device";
+      monitorString = "Peer to Peer";
       break;
     default:
       assert(0);
@@ -215,6 +227,23 @@ namespace xdp {
       str = "Hardware Emulation";
     else
       str = "System Run";
+  }
+
+  // Same as defined in vpl tcl
+  uint32_t RTUtil::getDevTraceBufferSize(uint32_t property)
+  {
+    switch(property) {
+      case 0 : return 8192;
+      case 1 : return 1024;
+      case 2 : return 2048;
+      case 3 : return 4096;
+      case 4 : return 16384;
+      case 5 : return 32768;
+      case 6 : return 65536;
+      case 7 : return 131072;
+      default : break;
+    }
+    return 8192;
   }
 
 } // xdp

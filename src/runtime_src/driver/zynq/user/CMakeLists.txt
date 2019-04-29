@@ -24,8 +24,10 @@ set_target_properties(xrt_core PROPERTIES VERSION ${XRT_VERSION_STRING}
   SOVERSION ${XRT_SOVERSION})
 
 target_link_libraries(xrt_core
+  xrt_coreutil
   pthread
   rt
+  uuid
   boost_filesystem
   boost_system
   )
