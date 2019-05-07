@@ -368,7 +368,7 @@ int xocl::XOCLShim::pcieBarWrite(unsigned int pf_bar, unsigned long long offset,
 /*
  * xclLogMsg()
  */
-int xocl::XOCLShim::xclLogMsg(xclDeviceHandle handle, xclLogMsgLevel level, const char* tag, const char* format, va_list args)
+int xocl::XOCLShim::xclLogMsg(xclDeviceHandle handle, xrtLogMsgLevel level, const char* tag, const char* format, va_list args)
 {
     va_list args_bak;
     // vsnprintf will mutate va_list so back it up
@@ -1217,7 +1217,7 @@ void xocl::XOCLShim::xclSysfsGetUsageInfo(drm_xocl_usage_stat& stat)
     std::vector<std::string> xmcStatStrs;
     auto dev = pcidev::get_dev(mBoardNumber);
     if(dev->user){
-        dev->user->sysfs_get("xdma", "channel_stat_raw", errmsg, dmaStatStrs);
+        dev->user->sysfs_get("dma", "channel_stat_raw", errmsg, dmaStatStrs);
         dev->user->sysfs_get("", "memstat_raw", errmsg, mmStatStrs);
         dev->user->sysfs_get("microblaze", "version", errmsg, xmcStatStrs);
     }
@@ -1935,7 +1935,7 @@ int xclLoadXclBin(xclDeviceHandle handle, const xclBin *buffer)
     return ret;
 }
 
-int xclLogMsg(xclDeviceHandle handle, xclLogMsgLevel level, const char* tag, const char* format, ...)
+int xclLogMsg(xclDeviceHandle handle, xrtLogMsgLevel level, const char* tag, const char* format, ...)
 {
     va_list args;
     va_start(args, format);
