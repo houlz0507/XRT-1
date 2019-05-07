@@ -52,6 +52,12 @@ enum {
 #define	FLASH_TYPE_SPI	"spi"
 #define	FLASH_TYPE_QSPIPS	"qspi_ps"
 
+enum {
+	XOCL_SUBDEV_LEVEL_STATIC,
+	XOCL_SUBDEV_LEVEL_BLD,
+	XOCL_SUBDEV_LEVEL_PRP,
+	XOCL_SUBDEV_LEVEL_URP,
+};
 struct xocl_subdev_info {
         uint32_t		id;
         const char		*name;
@@ -59,7 +65,11 @@ struct xocl_subdev_info {
         int			num_res;
 	void			*priv_data;
 	int			data_len;
+	bool			multi_inst;
+	int			level;
 	int			bar_idx;
+	int			pf;
+	int			dyn_ip;
 };
 
 struct xocl_board_private {
@@ -120,8 +130,8 @@ enum {
 #define	USER_SUFFIX		".u"
 
 #define XOCL_FEATURE_ROM		"rom"
-#define XOCL_XDMA			"xdma"
-#define XOCL_QDMA			"qdma"
+#define XOCL_XDMA			"dma.xdma"
+#define XOCL_QDMA			"dma.qdma"
 #define XOCL_MB_SCHEDULER		"mb_scheduler"
 #define XOCL_XVC_PUB			"xvc_pub"
 #define XOCL_XVC_PRI			"xvc_pri"
@@ -132,6 +142,7 @@ enum {
 #define	XOCL_XIIC			"xiic"
 #define	XOCL_MAILBOX			"mailbox"
 #define	XOCL_ICAP			"icap"
+#define	XOCL_ICAP_BLD			"icap_bld"
 #define	XOCL_MIG			"mig"
 #define	XOCL_XMC			"xmc"
 #define	XOCL_DNA			"dna"
@@ -153,6 +164,7 @@ enum subdev_id {
 	XOCL_SUBDEV_XIIC,
 	XOCL_SUBDEV_MAILBOX,
 	XOCL_SUBDEV_ICAP,
+	XOCL_SUBDEV_ICAP_BLD,
 	XOCL_SUBDEV_XMC,
 	XOCL_SUBDEV_DNA,
 	XOCL_SUBDEV_FMGR,
@@ -160,15 +172,16 @@ enum subdev_id {
 	XOCL_SUBDEV_NUM
 };
 
-#define XOCL_MAX_RES		16
-#define XOCL_RES_NAME_LEN	64
+#define XOCL_SUBDEV_MAX_RES		32
+#define XOCL_SUBDEV_RES_NAME_LEN	64
+#define XOCL_SUBDEV_MAX_INST		64
 
 #define	XOCL_SUBDEV_MAP_USERPF_ONLY		0x1
 struct xocl_subdev_map {
 	int	id;
 	const char *dev_name;
-	char	*ip_names[XOCL_MAX_RES];
-	u32	ipnum;
+	char	*ip_names[XOCL_SUBDEV_MAX_RES];
+	u32	required_ip;
 	u32	flags;
 	int	(*add_subdev)(unsigned long dev_hdl);
 };
@@ -224,6 +237,8 @@ struct xocl_subdev_map {
 		XOCL_MIG,				\
 		XOCL_RES_MIG,				\
 		ARRAY_SIZE(XOCL_RES_MIG),		\
+		.level = XOCL_SUBDEV_LEVEL_URP,		\
+		.multi_inst = true,			\
 	}
 
 
@@ -242,6 +257,8 @@ struct xocl_subdev_map {
 		XOCL_MIG,				\
 		XOCL_RES_MIG_HBM,			\
 		ARRAY_SIZE(XOCL_RES_MIG_HBM),		\
+		.level = XOCL_SUBDEV_LEVEL_URP,		\
+		.multi_inst = true,			\
 	}
 
 #define	XOCL_RES_AF					\
@@ -398,6 +415,7 @@ struct xocl_subdev_map {
 		XOCL_DNA,				\
 		XOCL_RES_DNA,				\
 		ARRAY_SIZE(XOCL_RES_DNA),		\
+		.level = XOCL_SUBDEV_LEVEL_URP,		\
 	}
 
 #define	XOCL_MAILBOX_OFFSET_MGMT	0x210000
@@ -633,11 +651,17 @@ struct xocl_subdev_map {
 			.end 	= 0x19FFFF,		\
 			.flags  = IORESOURCE_MEM,	\
 			},				\
+			/* RUNTIME CLOCK SCALING FEATURE BASE */	\
+			{				\
+			.start	= 0x053000,		\
+			.end	= 0x053fff,		\
+			.flags	= IORESOURCE_MEM,	\
+			},				\
 		})
 
 #define	XOCL_DEVINFO_XMC					\
 	{						\
-		XOCL_SUBDEV_XMC,				\
+		XOCL_SUBDEV_MB,				\
 		XOCL_XMC,				\
 		XOCL_RES_XMC,				\
 		ARRAY_SIZE(XOCL_RES_XMC),		\
@@ -645,7 +669,7 @@ struct xocl_subdev_map {
 
 #define	XOCL_DEVINFO_XMC_USER			\
 	{						\
-		XOCL_SUBDEV_XMC,				\
+		XOCL_SUBDEV_MB,				\
 		XOCL_XMC,				\
 		NULL,					\
 		0,					\
@@ -776,7 +800,7 @@ struct xocl_subdev_map {
 
 #define	XOCL_BOARD_USER_QDMA						\
 	(struct xocl_board_private){					\
-		.flags		= XOCL_DSAFLAG_CUDMA_OFF,					\
+		.flags		= 0,					\
 		.subdev_info	= USER_RES_QDMA,			\
 		.subdev_num = ARRAY_SIZE(USER_RES_QDMA),		\
 	}
