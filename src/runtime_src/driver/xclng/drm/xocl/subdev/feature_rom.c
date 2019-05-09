@@ -23,6 +23,7 @@
 #define	MAGIC_NUM	0x786e6c78
 struct feature_rom {
 	void __iomem		*base;
+	struct platform_device	*pdev;
 
 	struct FeatureRomHeader	header;
 	bool			unified;
@@ -32,6 +33,19 @@ struct feature_rom {
 	bool			aws_dev;
 	bool			runtime_clk_scale_en;
 };
+
+/* TODO: replace this with .dtb driven */
+static int xocl_init_rom_v5(struct feature_rom *rom5)
+{
+	struct FeatureRomHeader *header = &rom5->header;
+
+	strcpy(header->VBNVName, "xilinx_u200_dynamic_201910_1");
+	header->DDRChannelCount = 4;
+	header->DDRChannelSize = 16;
+	header->FeatureBitMap = UNIFIED_PLATFORM;
+
+	return 0;
+}
 
 static ssize_t VBNV_show(struct device *dev,
     struct device_attribute *attr, char *buf)
@@ -258,6 +272,8 @@ static int feature_rom_probe(struct platform_device *pdev)
 	if (!rom)
 		return -ENOMEM;
 
+	rom->pdev =  pdev;
+
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	rom->base = ioremap_nocache(res->start, res->end - res->start + 1);
 	if (!rom->base) {
@@ -309,6 +325,9 @@ static int feature_rom_probe(struct platform_device *pdev)
 	}
 
 	xocl_memcpy_fromio(&rom->header, rom->base, sizeof(rom->header));
+
+	if (rom->header.MajorVersion == 5)
+		xocl_init_rom_v5(rom);
 
 	if (strstr(rom->header.VBNVName, "-xare")) {
 		/*

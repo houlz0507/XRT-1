@@ -111,6 +111,8 @@ struct xclmgmt_dev {
 	int msix_user_start_vector;
 	bool ready;
 
+	struct xocl_subdev *dyn_subdev_store;
+	int dyn_subdev_num;
 
 	char *bin_buffer;
 	size_t bin_length;

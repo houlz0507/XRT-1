@@ -266,14 +266,14 @@ static int xocl_fdt_parse_seg(xdev_handle_t xdev_hdl, char *blob,
 		for (i = 0; i < dev_num; i++) {
 			if (!subdevs[i].info.dyn_ip) {
 				subdevs[i].info.level = ip->level;
-				subdevs[i].info.pf = ntohl(*pfnum);
+				subdevs[i].pf = ntohl(*pfnum);
 				subdevs[i].info.bar_idx =
 					bar_idx ? ntohl(*bar_idx) : 0;
 				subdevs[i].info.dyn_ip++;
 				total++;
 				break;
 			} else if (subdevs[i].info.level == ip->level &&
-				    subdevs[i].info.pf == ntohl(*pfnum)) {
+				    subdevs[i].pf == ntohl(*pfnum)) {
 				subdevs[i].info.dyn_ip++;
 				total++;
 				break;
@@ -420,10 +420,8 @@ static void xocl_fdt_dump_subdev(xdev_handle_t xdev_hdl,
 {
 	int i;
 
-	xocl_xdev_info(xdev_hdl, "Device %s, PF%d", subdev->info.name,
-		subdev->info.pf);
-	xocl_xdev_info(xdev_hdl, "Level %d, inst %d",
-		subdev->info.level, subdev->inst);
+	xocl_xdev_info(xdev_hdl, "Device %s, PF%d, level %d",
+		subdev->info.name, subdev->pf, subdev->info.level);
 
 	for (i = 0; i < subdev->info.num_res; i++)
 		xocl_xdev_info(xdev_hdl, "Res%d: %s %pR", i,
@@ -431,7 +429,8 @@ static void xocl_fdt_dump_subdev(xdev_handle_t xdev_hdl,
 }
 
 static int xocl_fdt_get_devinfo(xdev_handle_t xdev_hdl, char *blob,
-		struct xocl_subdev_map  *map_p)
+		struct xocl_subdev_map  *map_p,
+		struct xocl_subdev *rtn_subdevs)
 {
 	struct xocl_subdev *subdevs = NULL;
 	char *ip;
@@ -449,32 +448,45 @@ static int xocl_fdt_get_devinfo(xdev_handle_t xdev_hdl, char *blob,
 			break;
 
 		if (!subdevs) {
-			subdevs = kzalloc(sizeof(*subdevs) * dev_num,
-				GFP_KERNEL);
+			subdevs = vzalloc(sizeof(*subdevs) * dev_num);
 			sz = dev_num;
 			ip_num--;
 		}
 	}
 
+	dev_num = 0;
 	for (i = 0; i < sz; i++) {
 		if ((map_p->flags & XOCL_SUBDEV_MAP_USERPF_ONLY) &&
-			subdevs[i].info.pf == XOCL_PCI_FUNC(xdev_hdl))
+			subdevs[i].pf == XOCL_PCI_FUNC(xdev_hdl))
 			continue;
 		if (subdevs[i].info.dyn_ip >= map_p->required_ip) {
 			subdevs[i].info.id = map_p->id;
 			subdevs[i].info.name = map_p->dev_name;
-			xocl_fdt_dump_subdev(xdev_hdl, &subdevs[i]);
-			xocl_subdev_create(xdev_hdl, &subdevs[i].info);
+			memcpy(&rtn_subdevs[dev_num], &subdevs[i],
+					sizeof(struct xocl_subdev));
+			rtn_subdevs[dev_num].info.res =
+				rtn_subdevs[dev_num].res;
+			rtn_subdevs[dev_num].info.res =
+				rtn_subdevs[dev_num].res;
+			for (ip_num = 0;
+				ip_num < rtn_subdevs[dev_num].info.num_res;
+				ip_num ++)
+				rtn_subdevs[dev_num].info.res[ip_num].name =
+					rtn_subdevs[dev_num].res_name[ip_num];
+			xocl_fdt_dump_subdev(xdev_hdl, &rtn_subdevs[dev_num]);
+			dev_num++;
 		}
 	}
 
 failed:
-	if (subdevs)
-		kfree(subdevs);
+	if (subdevs) {
+		vfree(subdevs);
+	}
 	return dev_num;
 }
 
-static int xocl_fdt_parse_subdevs(xdev_handle_t xdev_hdl, char *blob)
+static int xocl_fdt_parse_subdevs(xdev_handle_t xdev_hdl, char *blob,
+		struct xocl_subdev *subdevs)
 {
 	struct xocl_subdev_map  *map_p;
 	int id, j, num, total = 0;
@@ -485,7 +497,8 @@ static int xocl_fdt_parse_subdevs(xdev_handle_t xdev_hdl, char *blob)
 			if (map_p->id != id)
 				continue;
 
-			num = xocl_fdt_get_devinfo(xdev_hdl, blob, map_p);
+			num = xocl_fdt_get_devinfo(xdev_hdl, blob, map_p,
+					subdevs + total);
 			if (num < 0) {
 				xocl_xdev_err(xdev_hdl,
 					"get subdev info failed, dev name: %s",
@@ -500,11 +513,12 @@ static int xocl_fdt_parse_subdevs(xdev_handle_t xdev_hdl, char *blob)
 	return total;
 }
 
-static int xocl_fdt_parse_blob(xdev_handle_t xdev_hdl, char *blob)
+static int xocl_fdt_parse_blob(xdev_handle_t xdev_hdl, char *blob,
+		struct xocl_subdev *subdevs)
 {
 	int		dev_num; 
 
-	dev_num = xocl_fdt_parse_subdevs(xdev_hdl, blob);
+	dev_num = xocl_fdt_parse_subdevs(xdev_hdl, blob, subdevs);
 	if (dev_num < 0) {
 		xocl_xdev_err(xdev_hdl, "parse dev failed, ret = %d", dev_num);
 		goto failed;
@@ -514,7 +528,8 @@ failed:
 	return dev_num;
 }
 
-int xocl_fdt_blob_input(xdev_handle_t xdev_hdl, char *blob, size_t len)
+int xocl_fdt_blob_input(xdev_handle_t xdev_hdl, char *blob, size_t len,
+		struct xocl_subdev *subdevs, int *subdev_num)
 {
 	struct xocl_dev_core	*core = XDEV(xdev_hdl);
 	char			*input_blob;
@@ -558,9 +573,10 @@ int xocl_fdt_blob_input(xdev_handle_t xdev_hdl, char *blob, size_t len)
 
 	vfree(input_blob);
 
-	mutex_lock(&core->lock);
-	xocl_fdt_parse_blob(xdev_hdl, core->fdt_blob);
-	mutex_unlock(&core->lock);
+	ret = xocl_fdt_parse_blob(xdev_hdl, core->fdt_blob, subdevs);
+	if (ret < 0)
+		goto failed;
+	*subdev_num = ret;
 
 	return 0;
 

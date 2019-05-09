@@ -52,6 +52,10 @@ enum {
 #define	FLASH_TYPE_SPI	"spi"
 #define	FLASH_TYPE_QSPIPS	"qspi_ps"
 
+#define XOCL_SUBDEV_MAX_RES		32
+#define XOCL_SUBDEV_RES_NAME_LEN	64
+#define XOCL_SUBDEV_MAX_INST		64
+
 enum {
 	XOCL_SUBDEV_LEVEL_STATIC,
 	XOCL_SUBDEV_LEVEL_BLD,
@@ -68,8 +72,8 @@ struct xocl_subdev_info {
 	bool			multi_inst;
 	int			level;
 	int			bar_idx;
-	int			pf;
 	int			dyn_ip;
+	const char		*override_name;
 };
 
 struct xocl_board_private {
@@ -171,10 +175,6 @@ enum subdev_id {
 	XOCL_SUBDEV_MIG_HBM,
 	XOCL_SUBDEV_NUM
 };
-
-#define XOCL_SUBDEV_MAX_RES		32
-#define XOCL_SUBDEV_RES_NAME_LEN	64
-#define XOCL_SUBDEV_MAX_INST		64
 
 #define	XOCL_SUBDEV_MAP_USERPF_ONLY		0x1
 struct xocl_subdev_map {
@@ -1168,9 +1168,27 @@ struct xocl_subdev_map {
 		.flash_type = FLASH_TYPE_SPI,				\
 	}
 
+#define	XOCL_RES_FEATURE_ROM_DYN				\
+		((struct resource []) {			\
+			{				\
+			.start	= 0x1f10000,		\
+			.end	= 0x1f10fff,		\
+			.flags	= IORESOURCE_MEM,	\
+			}				\
+		})
+
+
+#define	XOCL_DEVINFO_FEATURE_ROM_DYN			\
+	{						\
+		XOCL_SUBDEV_FEATURE_ROM,		\
+		XOCL_FEATURE_ROM,			\
+		XOCL_RES_FEATURE_ROM_DYN,		\
+		ARRAY_SIZE(XOCL_RES_FEATURE_ROM_DYN),	\
+	}
+
 #define MGMT_RES_DYNAMIC_IP						\
 		((struct xocl_subdev_info []) {				\
-			XOCL_DEVINFO_FEATURE_ROM,			\
+			XOCL_DEVINFO_FEATURE_ROM_DYN,			\
 			XOCL_DEVINFO_MAILBOX_MGMT,			\
 			XOCL_DEVINFO_FMGR,      			\
 		})
@@ -1180,6 +1198,36 @@ struct xocl_subdev_map {
 		.flags		= XOCL_DSAFLAG_DYNAMIC_IP,		\
 		.subdev_info	= MGMT_RES_DYNAMIC_IP,			\
 		.subdev_num = ARRAY_SIZE(MGMT_RES_DYNAMIC_IP),		\
+		.flash_type = FLASH_TYPE_SPI,				\
+	}
+
+#define	XOCL_RES_XVC_PUB_DYN				\
+	((struct resource []) {				\
+		{					\
+			.start	= 0x1f40000,		\
+			.end	= 0x1f4FFFF,		\
+			.flags	= IORESOURCE_MEM,	\
+		},					\
+	})
+
+#define	XOCL_DEVINFO_XVC_PUB_DYN				\
+	{						\
+		XOCL_SUBDEV_XVC_PUB,			\
+		XOCL_XVC_PUB,				\
+		XOCL_RES_XVC_PUB_DYN,			\
+		ARRAY_SIZE(XOCL_RES_XVC_PUB_DYN),		\
+	}
+
+#define USER_RES_DYNAMIC_IP						\
+		((struct xocl_subdev_info []) {				\
+		 	XOCL_DEVINFO_XVC_PUB_DYN,			\
+		})
+
+#define	XOCL_BOARD_USER_DYNAMIC_IP					\
+	(struct xocl_board_private){					\
+		.flags		= XOCL_DSAFLAG_DYNAMIC_IP,		\
+		.subdev_info	= USER_RES_DYNAMIC_IP,			\
+		.subdev_num = ARRAY_SIZE(USER_RES_DYNAMIC_IP),		\
 		.flash_type = FLASH_TYPE_SPI,				\
 	}
 
@@ -1252,7 +1300,7 @@ struct xocl_subdev_map {
 	{ XOCL_PCI_DEVID(0x10EE, 0x7890, 0x4351, USER_XDMA) },		\
 	{ XOCL_PCI_DEVID(0x10EE, 0x7890, 0x4352, USER_DSA52) },		\
 	{ XOCL_PCI_DEVID(0x10EE, 0x7990, 0x4352, USER_DSA52) },		\
-	{ XOCL_PCI_DEVID(0x10EE, 0x5001, PCI_ANY_ID, USER_DSA52) },	\
+	{ XOCL_PCI_DEVID(0x10EE, 0x5001, PCI_ANY_ID, USER_DYNAMIC_IP) },\
 	{ XOCL_PCI_DEVID(0x10EE, 0x5005, PCI_ANY_ID, USER_DSA52) },	\
 	{ XOCL_PCI_DEVID(0x10EE, 0x5009, PCI_ANY_ID, USER_DSA52) },	\
 	{ XOCL_PCI_DEVID(0x10EE, 0x500D, PCI_ANY_ID, USER_DSA52) },	\

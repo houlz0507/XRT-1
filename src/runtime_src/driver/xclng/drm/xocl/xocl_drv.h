@@ -188,8 +188,11 @@ struct xocl_subdev {
 	int				state;
 	struct xocl_subdev_info		info;
 	int				inst;
-	struct resource			res[XOCL_SUBDEV_MAX_RES];
+	int				pf;
+
+        struct resource		res[XOCL_SUBDEV_MAX_RES];
 	char	res_name[XOCL_SUBDEV_MAX_RES][XOCL_SUBDEV_RES_NAME_LEN];
+
 };
 
 #define	XOCL_GET_SUBDEV_PRIV(dev)				\
@@ -804,7 +807,8 @@ int health_thread_start(xdev_handle_t xdev);
 int health_thread_stop(xdev_handle_t xdev);
 
 /* subdev blob functions */
-int xocl_fdt_blob_input(xdev_handle_t xdev_hdl, char *blob, size_t len);
+int xocl_fdt_blob_input(xdev_handle_t xdev_hdl, char *blob, size_t len,
+		struct xocl_subdev *subdevs, int *subdev_num);
 int xocl_fdt_remove_subdevs(xdev_handle_t xdev_hdl, struct list_head *devlist);
 int xocl_fdt_unlink_node(xdev_handle_t xdev_hdl, void *node);
 
@@ -859,4 +863,7 @@ void xocl_fini_dna(void);
 
 int __init xocl_init_fmgr(void);
 void xocl_fini_fmgr(void);
+
+int __init xocl_init_xdma_mgmt(void);
+void xocl_fini_xdma_mgmt(void);
 #endif

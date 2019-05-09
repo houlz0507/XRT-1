@@ -57,6 +57,7 @@ MODULE_PARM_DESC(minimum_initialization,
 #define	LOW_MILLVOLT		500
 #define	HI_MILLVOLT		2500
 
+#define MAX_DYN_SUBDEV		1024
 
 static dev_t xclmgmt_devnode;
 struct class *xrt_class;
@@ -457,6 +458,9 @@ static inline bool xclmgmt_support_intr(struct xclmgmt_dev *lro)
 {
 	struct xocl_board_private *dev_info = &lro->core.priv;
 
+	if (dev_info->flags & XOCL_DSAFLAG_DYNAMIC_IP)
+		return false;
+
 	return (dev_info->flags & XOCL_DSAFLAG_FIXED_INTR) ||
 		lro->core.intr_bar_addr != NULL;
 }
@@ -519,6 +523,11 @@ static int xclmgmt_intr_config(xdev_handle_t xdev_hdl, u32 intr, bool en)
 {
 	struct xclmgmt_dev *lro = (struct xclmgmt_dev *)xdev_hdl;
 	struct xocl_board_private *dev_info = &lro->core.priv;
+	int ret;
+
+	ret = xocl_dma_intr_config(lro, intr, en);
+	if (!ret)
+		return ret;
 
 	if (!xclmgmt_support_intr(lro))
 		return -EOPNOTSUPP;
@@ -535,6 +544,13 @@ static int xclmgmt_intr_register(xdev_handle_t xdev_hdl, u32 intr,
 {
 	u32 vec;
 	struct xclmgmt_dev *lro = (struct xclmgmt_dev *)xdev_hdl;
+	int ret;
+
+	ret = handler ?
+		xocl_dma_intr_register(lro, intr, handler, arg, -1) :
+		xocl_dma_intr_unreg(lro, intr);
+	if (!ret)
+		return ret;
 
 	if (!xclmgmt_support_intr(lro))
 		return -EOPNOTSUPP;
@@ -930,6 +946,14 @@ static int xclmgmt_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto err_cdev;
 	}
 
+	lro->dyn_subdev_store = vzalloc(MAX_DYN_SUBDEV *
+			sizeof(struct xocl_subdev));
+	if (!lro->dyn_subdev_store) {
+		rc = -ENOMEM;
+		xocl_err(&pdev->dev, "Alloc dyn_subdev_store failed");
+		goto err_alloc_subdev_store;
+	}
+
 	xocl_drvinst_set_filedev(lro, lro->user_char_dev.cdev);
 
 	mutex_init(&lro->busy_mutex);
@@ -950,6 +974,9 @@ static int xclmgmt_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	xclmgmt_connect_notify(lro, true);
 
 	return 0;
+
+err_alloc_subdev_store:
+	destroy_sg_char(&lro->user_char_dev);
 
 err_cdev:
 	unmap_bars(lro);
@@ -1040,6 +1067,7 @@ static struct pci_driver xclmgmt_driver = {
 
 static int (*drv_reg_funcs[])(void) __initdata = {
 	xocl_init_feature_rom,
+	xocl_init_xdma_mgmt,
 	xocl_init_sysmon,
 	xocl_init_mb,
 	xocl_init_xvc,
@@ -1056,6 +1084,7 @@ static int (*drv_reg_funcs[])(void) __initdata = {
 
 static void (*drv_unreg_funcs[])(void) = {
 	xocl_fini_feature_rom,
+	xocl_fini_xdma_mgmt,
 	xocl_fini_sysmon,
 	xocl_fini_mb,
 	xocl_fini_xvc,

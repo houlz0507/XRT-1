@@ -143,6 +143,7 @@ int xocl_subdev_create(xdev_handle_t xdev_hdl,
 	resource_size_t iostart;
 	struct resource *res = NULL;
 	int i, retval;
+	char devname[64];
 
 	subdev = xocl_subdev_reserve(xdev_hdl, sdev_info);
 	if (!subdev) {
@@ -167,28 +168,28 @@ int xocl_subdev_create(xdev_handle_t xdev_hdl,
 		for (i = 0; i < sdev_info->num_res; i++) {
 			if (sdev_info->res[i].name) {
 				res[i].name = subdev->res_name[i];
-				strncpy(res[i].name,
+				strncpy(subdev->res_name[i],
 					sdev_info->res[i].name,
 					XOCL_SUBDEV_RES_NAME_LEN - 1);
 			}
 
 		}
+
+		subdev->info.res = res;
 	}
 
-	if ((sdev_info->level == XOCL_SUBDEV_LEVEL_BLD || 
-		sdev_info->level == XOCL_SUBDEV_LEVEL_PRP) &&
-	   	sdev_info->pf != XOCL_PCI_FUNC(xdev_hdl)) {
-		xocl_xdev_info(xdev_hdl, "Cache subdev %s id %d pf %d",
-			sdev_info->name, subdev->inst, sdev_info->pf);
-		return 0;
-	}	
-
+	if (sdev_info->override_name)
+		snprintf(devname, sizeof(devname) - 1, "%s",
+				sdev_info->override_name);
+	else
+		snprintf(devname, sizeof(devname) - 1, "%s%s",
+				sdev_info->name, SUBDEV_SUFFIX);
 	xocl_xdev_info(xdev_hdl, "creating subdev %s id %d",
-			sdev_info->name, subdev->inst);
-	subdev->pldev = platform_device_alloc(sdev_info->name, subdev->inst);
+			devname, subdev->inst);
+	subdev->pldev = platform_device_alloc(devname, subdev->inst);
 	if (!subdev->pldev) {
 		xocl_xdev_err(xdev_hdl, "failed to alloc device %s",
-			sdev_info->name);
+			devname);
 		retval = -ENOMEM;
 		goto error;
 	}
@@ -229,14 +230,14 @@ int xocl_subdev_create(xdev_handle_t xdev_hdl,
 
 	subdev->pldev->dev.parent = &core->pdev->dev;
 
+	xocl_xdev_info(xdev_hdl, "Created subdev %s id %d",
+			devname, subdev->inst);
+
 	retval = platform_device_add(subdev->pldev);
 	if (retval) {
 		xocl_xdev_err(xdev_hdl, "failed to add device");
 		goto error;
 	}
-
-	xocl_xdev_info(xdev_hdl, "Created subdev %s id %d",
-			sdev_info->name, subdev->inst);
 
 	/*
 	 * force probe to avoid dependence issue. if probing
@@ -247,11 +248,11 @@ int xocl_subdev_create(xdev_handle_t xdev_hdl,
 		/* return error without release. relies on caller to decide
 		   if this is an error or not */
 		xocl_xdev_info(xdev_hdl, "failed to probe subdev %s, ret %d",
-			sdev_info->name, retval);
+			devname, retval);
 		return -EAGAIN;
 	}
 	xocl_xdev_info(xdev_hdl, "subdev %s id %d is active",
-			sdev_info->name, subdev->inst);
+			devname, subdev->inst);
 
 	return 0;
 
@@ -324,9 +325,11 @@ int xocl_subdev_create_all(xdev_handle_t xdev_hdl,
 	u32	id;
 	int	i, ret = 0;
 
+	if (core->priv.flags & XOCL_DSAFLAG_DYNAMIC_IP)
+		goto skip_reload;
+
 	/* lookup update table */
-	ret = xocl_subdev_create(xdev_hdl,
-		&(struct xocl_subdev_info)XOCL_DEVINFO_FEATURE_ROM);
+	ret = xocl_subdev_create_by_id(xdev_hdl, XOCL_SUBDEV_FEATURE_ROM);
 	if (ret && ret != -EEXIST)
 		goto failed;
 
@@ -348,6 +351,7 @@ int xocl_subdev_create_all(xdev_handle_t xdev_hdl,
 		}
 	}
 
+skip_reload:
 	/* create subdevices */
 	for (i = 0; i < subdev_num; i++) {
 		id = sdev_info[i].id;

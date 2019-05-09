@@ -2179,7 +2179,7 @@ static struct platform_driver mailbox_driver = {
 	.probe		= mailbox_probe,
 	.remove		= mailbox_remove,
 	.driver		= {
-		.name	= XOCL_MAILBOX,
+		.name	=XOCL_DEVNAME(XOCL_MAILBOX),
 	},
 	.id_table = mailbox_id_table,
 };

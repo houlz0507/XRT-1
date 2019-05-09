@@ -1940,7 +1940,7 @@ static struct platform_driver	xmc_driver = {
 	.probe		= xmc_probe,
 	.remove		= xmc_remove,
 	.driver		= {
-		.name = XOCL_XMC,
+		.name = XOCL_DEVNAME(XOCL_XMC),
 	},
 	.id_table = xmc_id_table,
 };
