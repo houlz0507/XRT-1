@@ -109,6 +109,7 @@ SET (XRT_DKMS_SRCS
   driver/xclng/drm/xocl/subdev/xmc.c
   driver/xclng/drm/xocl/subdev/dna.c
   driver/xclng/drm/xocl/subdev/fmgr.c
+  driver/xclng/drm/xocl/subdev/xdma_mgmt.c
   driver/xclng/drm/xocl/Makefile
   driver/xclng/drm/.dir-locals.el
   driver/xclng/include/xocl_ioctl.h
