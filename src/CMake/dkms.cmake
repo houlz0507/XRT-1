@@ -40,6 +40,7 @@ SET (XRT_DKMS_SRCS
   driver/xclng/drm/xocl/xocl_subdev.c
   driver/xclng/drm/xocl/xocl_ctx.c
   driver/xclng/drm/xocl/xocl_thread.c
+  driver/xclng/drm/xocl/xocl_fdt.c
   driver/xclng/drm/xocl/xocl_test.c
   driver/xclng/drm/xocl/userpf/common.h
   driver/xclng/drm/xocl/userpf/xocl_bo.c
