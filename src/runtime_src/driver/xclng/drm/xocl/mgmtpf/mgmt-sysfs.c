@@ -263,8 +263,6 @@ static ssize_t subdev_cmd_store(struct device *dev,
 		for (i = XOCL_SUBDEV_LEVEL_URP; i > XOCL_SUBDEV_LEVEL_STATIC;
 				i--) {
 			xocl_subdev_destroy_by_level(lro, i);
-			if (ret)
-				break;
 		}
 	} else {
 		xocl_err(dev, "Invalid command");
