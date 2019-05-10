@@ -239,7 +239,7 @@ static ssize_t subdev_cmd_store(struct device *dev,
 	struct device_attribute *da, const char *buf, size_t count)
 {
 	struct xclmgmt_dev *lro = dev_get_drvdata(dev);
-	int ret, i;
+	int ret = 0, i;
 	char *name = (char *)buf;
 	char cmd[9] = { 0 }, sdev_name[33] = { 0 };
 	struct xocl_subdev *subdev;
