@@ -1168,37 +1168,12 @@ struct xocl_subdev_map {
 		.flash_type = FLASH_TYPE_SPI,				\
 	}
 
-#define	XOCL_RES_FEATURE_ROM_DYN				\
-		((struct resource []) {			\
-			{				\
-			.start	= 0x1f10000,		\
-			.end	= 0x1f10fff,		\
-			.flags	= IORESOURCE_MEM,	\
-			}				\
-		})
-
-
 #define	XOCL_DEVINFO_FEATURE_ROM_DYN			\
 	{						\
 		XOCL_SUBDEV_FEATURE_ROM,		\
 		XOCL_FEATURE_ROM,			\
-		XOCL_RES_FEATURE_ROM_DYN,		\
-		ARRAY_SIZE(XOCL_RES_FEATURE_ROM_DYN),	\
-	}
-
-#define MGMT_RES_DYNAMIC_IP						\
-		((struct xocl_subdev_info []) {				\
-			XOCL_DEVINFO_FEATURE_ROM_DYN,			\
-			XOCL_DEVINFO_MAILBOX_MGMT,			\
-			XOCL_DEVINFO_FMGR,      			\
-		})
-
-#define	XOCL_BOARD_MGMT_DYNAMIC_IP					\
-	(struct xocl_board_private){					\
-		.flags		= XOCL_DSAFLAG_DYNAMIC_IP,		\
-		.subdev_info	= MGMT_RES_DYNAMIC_IP,			\
-		.subdev_num = ARRAY_SIZE(MGMT_RES_DYNAMIC_IP),		\
-		.flash_type = FLASH_TYPE_SPI,				\
+		NULL,					\
+		0,					\
 	}
 
 #define	XOCL_RES_XVC_PUB_DYN				\
@@ -1210,17 +1185,84 @@ struct xocl_subdev_map {
 		},					\
 	})
 
-#define	XOCL_DEVINFO_XVC_PUB_DYN				\
+#define	XOCL_DEVINFO_XVC_PUB_DYN			\
 	{						\
 		XOCL_SUBDEV_XVC_PUB,			\
 		XOCL_XVC_PUB,				\
 		XOCL_RES_XVC_PUB_DYN,			\
-		ARRAY_SIZE(XOCL_RES_XVC_PUB_DYN),		\
+		ARRAY_SIZE(XOCL_RES_XVC_PUB_DYN),	\
+	}
+
+#define	XOCL_RES_MAILBOX_MGMT_DYN				\
+	((struct resource []) {				\
+		{					\
+			.start	= 0x1e10000,		 \
+			.end	= 0x1e1002F,		\
+			.flags  = IORESOURCE_MEM,	\
+		},					\
+	})
+
+#define	XOCL_DEVINFO_MAILBOX_MGMT_DYN			\
+	{						\
+		XOCL_SUBDEV_MAILBOX,			\
+		XOCL_MAILBOX,				\
+		XOCL_RES_MAILBOX_MGMT_DYN,		\
+		ARRAY_SIZE(XOCL_RES_MAILBOX_MGMT_DYN),	\
+	}
+
+#define	XOCL_DEVINFO_MAILBOX_USER_DYN			\
+	{						\
+		XOCL_SUBDEV_MAILBOX,			\
+		XOCL_MAILBOX,				\
+		XOCL_RES_MAILBOX_USER_DYN,		\
+		ARRAY_SIZE(XOCL_RES_MAILBOX_USER_DYN),	\
+	}
+
+#define	XOCL_RES_MAILBOX_USER_DYN			\
+	((struct resource []) {				\
+		{					\
+			.start	= 0x1f20000,		 \
+			.end	= 0x1f2002F,		\
+			.flags  = IORESOURCE_MEM,	\
+		},					\
+		{					\
+			.start	= 4,			\
+			.end	= 4,			\
+			.flags  = IORESOURCE_IRQ,	\
+		},					\
+	})
+
+#define	XOCL_DEVINFO_MAILBOX_USER_DYN			\
+	{						\
+		XOCL_SUBDEV_MAILBOX,			\
+		XOCL_MAILBOX,				\
+		XOCL_RES_MAILBOX_USER_DYN,		\
+		ARRAY_SIZE(XOCL_RES_MAILBOX_USER_DYN),	\
+	}
+
+#define MGMT_RES_DYNAMIC_IP						\
+		((struct xocl_subdev_info []) {				\
+		 	XOCL_DEVINFO_MAILBOX_MGMT_DYN,			\
+			XOCL_DEVINFO_FMGR,      			\
+		})
+
+#define	XOCL_BOARD_MGMT_DYNAMIC_IP					\
+	(struct xocl_board_private){					\
+		.flags		= XOCL_DSAFLAG_DYNAMIC_IP,		\
+		.subdev_info	= MGMT_RES_DYNAMIC_IP,			\
+		.subdev_num = ARRAY_SIZE(MGMT_RES_DYNAMIC_IP),		\
+		.flash_type = FLASH_TYPE_SPI,				\
 	}
 
 #define USER_RES_DYNAMIC_IP						\
 		((struct xocl_subdev_info []) {				\
+		 	XOCL_DEVINFO_FEATURE_ROM_DYN,			\
+		 	XOCL_DEVINFO_XDMA,				\
+		 	XOCL_DEVINFO_MAILBOX_USER_DYN,			\
+		 	XOCL_DEVINFO_SCHEDULER,				\
 		 	XOCL_DEVINFO_XVC_PUB_DYN,			\
+		 	XOCL_DEVINFO_ICAP_USER,				\
+		 	XOCL_DEVINFO_XMC_USER,				\
 		})
 
 #define	XOCL_BOARD_USER_DYNAMIC_IP					\

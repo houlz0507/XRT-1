@@ -421,8 +421,12 @@ inline void check_volt_within_range(struct xclmgmt_dev *lro, u16 volt)
 static void check_sysmon(struct xclmgmt_dev *lro)
 {
 	u32 val;
+	int ret;
 
-	xocl_sysmon_get_prop(lro, XOCL_SYSMON_PROP_TEMP, &val);
+	ret = xocl_sysmon_get_prop(lro, XOCL_SYSMON_PROP_TEMP, &val);
+	if (ret == -ENODEV)
+		return;
+
 	check_temp_within_range(lro, val);
 
 	xocl_sysmon_get_prop(lro, XOCL_SYSMON_PROP_VCC_INT, &val);
@@ -668,7 +672,7 @@ static bool xclmgmt_is_same_domain(struct xclmgmt_dev *lro,
 	return true;
 }
 
-static void xclmgmt_mailbox_srv(void *arg, void *data, size_t len,
+void xclmgmt_mailbox_srv(void *arg, void *data, size_t len,
 	u64 msgid, int err, bool sw_ch)
 {
 	int ret = 0;
@@ -814,9 +818,11 @@ static void xclmgmt_extended_probe(struct xclmgmt_dev *lro)
 	}
 	xocl_err(&pdev->dev, "created all sub devices");
 
+#if 0
 	ret = xocl_icap_download_boot_firmware(lro);
 	if (ret)
 		goto fail_all_subdev;
+#endif
 
 	lro->core.thread_arg.health_cb = health_check_cb;
 	lro->core.thread_arg.arg = lro;

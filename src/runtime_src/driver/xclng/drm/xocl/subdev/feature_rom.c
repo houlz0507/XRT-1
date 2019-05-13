@@ -259,28 +259,26 @@ static struct xocl_rom_funcs rom_ops = {
 	.runtime_clk_scale_on = runtime_clk_scale_on,
 };
 
-static int feature_rom_probe(struct platform_device *pdev)
+static int get_header_from_peer(struct feature_rom *rom)
 {
-	struct feature_rom *rom;
-	struct resource *res;
+	//TODO, Hardcoded for now.
+	struct FeatureRomHeader *header = &rom->header;
+
+	*(u32 *)header->EntryPointString = MAGIC_NUM;
+	strcpy(header->VBNVName, "xilinx_u200_dynamic_201910_1");
+	header->DDRChannelCount = 4;
+	header->DDRChannelSize = 16;
+	header->FeatureBitMap = UNIFIED_PLATFORM;
+
+	return 0;
+}
+
+static int get_header_from_iomem(struct feature_rom *rom)
+{
+	struct platform_device *pdev = rom->pdev;
 	u32	val;
 	u16	vendor, did;
-	char	*tmp;
-	int	ret;
-
-	rom = devm_kzalloc(&pdev->dev, sizeof(*rom), GFP_KERNEL);
-	if (!rom)
-		return -ENOMEM;
-
-	rom->pdev =  pdev;
-
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	rom->base = ioremap_nocache(res->start, res->end - res->start + 1);
-	if (!rom->base) {
-		ret = -EIO;
-		xocl_err(&pdev->dev, "Map iomem failed");
-		goto failed;
-	}
+	int	ret = 0;
 
 	val = ioread32(rom->base);
 	if (val != MAGIC_NUM) {
@@ -328,6 +326,37 @@ static int feature_rom_probe(struct platform_device *pdev)
 
 	if (rom->header.MajorVersion == 5)
 		xocl_init_rom_v5(rom);
+
+failed:
+	return ret;
+}
+
+static int feature_rom_probe(struct platform_device *pdev)
+{
+	struct feature_rom *rom;
+	struct resource *res;
+	char	*tmp;
+	int	ret;
+
+	rom = devm_kzalloc(&pdev->dev, sizeof(*rom), GFP_KERNEL);
+	if (!rom)
+		return -ENOMEM;
+
+	rom->pdev =  pdev;
+
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	if (res == NULL)
+		ret = get_header_from_peer(rom);
+	else {
+		rom->base = ioremap_nocache(res->start, res->end - res->start + 1);
+		if (!rom->base) {
+			ret = -EIO;
+			xocl_err(&pdev->dev, "Map iomem failed");
+			goto failed;
+		}
+
+		ret = get_header_from_iomem(rom);
+	}
 
 	if (strstr(rom->header.VBNVName, "-xare")) {
 		/*

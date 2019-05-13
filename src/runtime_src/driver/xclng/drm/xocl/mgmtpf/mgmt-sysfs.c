@@ -239,25 +239,38 @@ static ssize_t subdev_cmd_store(struct device *dev,
 	struct device_attribute *da, const char *buf, size_t count)
 {
 	struct xclmgmt_dev *lro = dev_get_drvdata(dev);
-	int ret = 0, i;
+	int ret = 0, i, subdev_num = 0;
 	char *name = (char *)buf;
 	char cmd[9] = { 0 }, sdev_name[33] = { 0 };
-	struct xocl_subdev *subdev;
+	struct xocl_subdev_info *subdev_info;
 
 	sscanf(name, "%8s %32s", cmd, sdev_name);
 
 	device_lock(dev);
 	if (!strcmp(cmd, "create") && !strcmp(sdev_name, "dynamic") ) {
-		for (i = 0; i < lro->dyn_subdev_num; i++) {
-			subdev = &lro->dyn_subdev_store[i];
-			if (subdev->pf != XOCL_PCI_FUNC(lro))
-				continue;
-
-			ret = xocl_subdev_create(lro,
-				&lro->dyn_subdev_store[i].info);
-			if (ret && ret != -EAGAIN)
-				break;
+		subdev_info = vzalloc((lro->dyn_subdev_num +
+			lro->core.priv.subdev_num) * sizeof(*subdev_info));
+		if (!subdev_info) {
+			ret = -ENOMEM;
+			goto failed;
 		}
+
+		for (i = 0; i < lro->core.priv.subdev_num; i++)
+			xocl_subdev_update_info(lro, subdev_info, &subdev_num,
+					&lro->core.priv.subdev_info[i]);
+
+		for (i = 0; i < lro->dyn_subdev_num; i++) {
+			if (lro->dyn_subdev_store[i].pf != XOCL_PCI_FUNC(lro))
+				continue;
+			xocl_subdev_update_info(lro, subdev_info, &subdev_num,
+					&lro->dyn_subdev_store[i].info);
+		}
+
+		xocl_subdev_destroy_all(lro);
+		ret = xocl_subdev_create_all(lro, subdev_info, subdev_num);
+		vfree(subdev_info);
+
+		(void) xocl_peer_listen(lro, xclmgmt_mailbox_srv, (void *)lro);
 	} else if (!strcmp(cmd, "destroy") &&
 			!strcmp(sdev_name, "dynamic")) {
 		for (i = XOCL_SUBDEV_LEVEL_URP; i > XOCL_SUBDEV_LEVEL_STATIC;
@@ -268,10 +281,12 @@ static ssize_t subdev_cmd_store(struct device *dev,
 		xocl_err(dev, "Invalid command");
 		ret = -EINVAL;
 	}
-	if (ret && ret != -EAGAIN)
-		xocl_err(dev, "%s %s failed", cmd, sdev_name);
-	else
+
+failed:
+	if (!ret || ret == -EAGAIN)
 		ret = count;
+	else
+		xocl_err(dev, "%s %s failed", cmd, sdev_name);
 	device_unlock(dev);
 
 	return ret;

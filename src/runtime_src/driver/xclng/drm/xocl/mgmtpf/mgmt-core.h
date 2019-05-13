@@ -140,6 +140,9 @@ long reset_hot_ioctl(struct xclmgmt_dev *lro);
 void xdma_reset(struct pci_dev *pdev, bool prepare);
 void xclmgmt_reset_pci(struct xclmgmt_dev *lro);
 
+void xclmgmt_mailbox_srv(void *arg, void *data, size_t len,
+		        u64 msgid, int err, bool sw_ch);
+
 /* firewall.c */
 void init_firewall(struct xclmgmt_dev *lro);
 void xclmgmt_killall_processes(struct xclmgmt_dev *lro);

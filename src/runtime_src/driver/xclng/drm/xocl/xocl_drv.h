@@ -764,6 +764,11 @@ void xocl_subdev_destroy_by_level(xdev_handle_t xdev_hdl, int level);
 
 int xocl_subdev_create_by_name(xdev_handle_t xdev_hdl, char *name);
 int xocl_subdev_destroy_by_name(xdev_handle_t xdev_hdl, char *name);
+
+void xocl_subdev_update_info(xdev_handle_t xdev_hdl,
+        struct xocl_subdev_info *info_array, int *num,
+        struct xocl_subdev_info *sdev_info);
+
 void xocl_subdev_register(struct platform_device *pldev, u32 id,
 	void *cb_funcs);
 void xocl_fill_dsa_priv(xdev_handle_t xdev_hdl, struct xocl_board_private *in);

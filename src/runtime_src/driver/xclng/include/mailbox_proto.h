@@ -83,6 +83,7 @@ enum group_kind {
 	SENSOR = 0,
 	ICAP,
 	MGMT,
+	SUBDEV,
 };
 
 /**
@@ -147,13 +148,21 @@ struct xcl_common {
 };
 
 /**
+ * Data structure used to fetch SUBDEV group
+ */
+struct xcl_subdev {
+};
+
+/**
  * MAILBOX_REQ_PEER_DATA payload type
  * @kind - data group
  * @size - buffer size for receiving response
+ * @offset - indicate the start point
  */
 struct mailbox_subdev_peer {
 	enum group_kind kind;
 	size_t size;
+	size_t offset;
 };
 
 /**

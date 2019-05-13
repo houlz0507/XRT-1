@@ -357,7 +357,7 @@ skip_reload:
 		id = sdev_info[i].id;
 
 		ret = xocl_subdev_create(xdev_hdl, &sdev_info[i]);
-		if (ret && ret != -EEXIST)
+		if (ret && ret != -EEXIST && ret != -EAGAIN)
 			goto failed;
 	}
 
@@ -567,6 +567,32 @@ int xocl_subdev_online_all(xdev_handle_t xdev_hdl)
 	return ret;
 }
 
+void xocl_subdev_update_info(xdev_handle_t xdev_hdl,
+	struct xocl_subdev_info *info_array, int *num,
+	struct xocl_subdev_info *sdev_info)
+{
+	int	i, idx;
+
+	for (i = 0; i < *num; i++) {
+		if (info_array[i].id == sdev_info->id) {
+			memcpy(&info_array[i], sdev_info,
+				sizeof(*info_array));
+			return;
+		}
+
+		if (info_array[i].id > sdev_info->id)
+			break;
+	}
+	idx = i;
+
+	*num += 1;
+	for (i = *num; i > idx; i--) {
+		memcpy(&info_array[i], &info_array[i - 1],
+				sizeof(*info_array));
+	}
+	memcpy(&info_array[idx], sdev_info, sizeof(*info_array));
+}
+
 void xocl_subdev_register(struct platform_device *pldev, u32 id,
 	void *cb_funcs)
 {
@@ -626,7 +652,8 @@ void xocl_fill_dsa_priv(xdev_handle_t xdev_hdl, struct xocl_board_private *in)
 		core->priv.xpr = in->xpr;
 
 	for (i = 0; i < in->subdev_num; i++) {
-		if (in->subdev_info[i].id == XOCL_SUBDEV_FEATURE_ROM) {
+		if (in->subdev_info[i].id == XOCL_SUBDEV_FEATURE_ROM &&
+			in->subdev_info[i].res) {
 			core->feature_rom_offset =
 				in->subdev_info[i].res[0].start;
 			break;

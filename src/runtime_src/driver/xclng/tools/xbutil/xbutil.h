@@ -676,7 +676,7 @@ public:
         sensor_tree::put( "board.physical.electrical.mgt_vtt.voltage",           m_devinfo.mMgtVtt );
         sensor_tree::put( "board.physical.electrical.vccint.voltage",            m_devinfo.mVccIntVol );
         {
-            unsigned cur = 0;
+            unsigned short cur = 0;
             std::string errmsg;
             pcidev::get_dev(m_idx)->user->sysfs_get("xmc", "xmc_vccint_curr", errmsg, cur);
             sensor_tree::put( "board.physical.electrical.vccint.current",            cur);
@@ -853,7 +853,6 @@ public:
         ostr << std::setw(17) << "     Tag"  << std::setw(12) << "Type"
              << std::setw(9)  << "Temp(C)"   << std::setw(8)  << "Size";
         ostr << std::setw(16) << "Mem Usage" << std::setw(8)  << "BO count" << std::endl;
-
         try {
           for (auto& v : sensor_tree::get_child("board.memory.mem")) {
             int index = std::stoi(v.first);

@@ -100,7 +100,8 @@ static int user_intr_unreg(struct platform_device *pdev, u32 intr)
 	xdma->user_msix_table[intr].handler = NULL;
 	xdma->user_msix_table[intr].arg = NULL;
 	xdma->user_msix_table[intr].in_use = false;
-	xocl_info(&pdev->dev, "intr %d unreg success", intr);
+	xocl_info(&pdev->dev, "intr %d unreg success, start vec %d",
+		intr, xdma->msix_user_start_vector);
 failed:
 	mutex_unlock(&xdma->user_msix_table_lock);
 
@@ -144,7 +145,8 @@ static int user_intr_register(struct platform_device *pdev, u32 intr,
 	xdma->user_msix_table[intr].arg = arg;
 	xdma->user_msix_table[intr].in_use = true;
 
-	xocl_info(&pdev->dev, "intr %d register success", intr);
+	xocl_info(&pdev->dev, "intr %d register success, start vec %d",
+		       intr, xdma->msix_user_start_vector);
 
 failed:
 	mutex_unlock(&xdma->user_msix_table_lock);
