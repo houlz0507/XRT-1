@@ -410,3 +410,49 @@ void xclmgmt_reset_pci(struct xclmgmt_dev *lro)
 
 	xocl_pci_restore_config_all(pdev);
 }
+
+int xclmgmt_update_userpf_blob(struct xclmgmt_dev *lro)
+{
+	int len, userpf_idx;
+	int ret;
+
+	if (!lro->core.fdt_blob)
+		return 0;
+
+	userpf_idx = xocl_fdt_get_userpf(lro, lro->core.fdt_blob);
+	if (userpf_idx < 0) {
+		mgmt_err(lro, "did not get userpf index. %d", userpf_idx);
+		return userpf_idx;
+	}
+
+	len = fdt_totalsize(lro->core.fdt_blob);
+	if (!lro->userpf_blob) {
+		lro->userpf_blob = vzalloc(len);
+		if (!lro->userpf_blob)
+			return -ENOMEM;
+	}
+
+	ret = fdt_create_empty_tree(lro->userpf_blob, len);
+	if (ret) {
+		mgmt_err(lro, "create fdt failed %d", ret);
+		goto failed;
+	}
+
+	ret = xocl_fdt_overlay(lro->userpf_blob, 0, lro->core.fdt_blob, 0,
+			userpf_idx);
+	if (ret) {
+		mgmt_err(lro, "overlay fdt failed %d", ret);
+		goto failed;
+	}
+
+	return 0;
+
+failed:
+	if (lro->userpf_blob) {
+		vfree(lro->userpf_blob);
+		lro->userpf_blob = NULL;
+	}
+
+	return ret;
+}
+

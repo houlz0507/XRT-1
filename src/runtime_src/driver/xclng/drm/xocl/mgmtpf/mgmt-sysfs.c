@@ -190,61 +190,16 @@ static ssize_t ready_show(struct device *dev,
 }
 static DEVICE_ATTR_RO(ready);
 
-#if 0
-static ssize_t dev_online_show(struct device *dev,
-	struct device_attribute *attr, char *buf)
-{
-	struct xclmgmt_dev *lro = dev_get_drvdata(dev);
-
-	int val = xocl_drvinst_get_offline(lro) ? 1 : 0;
-
-	return sprintf(buf, "%d\n", val);
-}
-
-static ssize_t dev_online_store(struct device *dev,
-	struct device_attribute *da, const char *buf, size_t count)
-{
-	struct xclmgmt_dev *lro = dev_get_drvdata(dev);
-	int ret;
-	u32 online;
-
-	if (kstrtou32(buf, 10, &online) == -EINVAL || offline > 1)
-		return -EINVAL;
-
-	device_lock(dev);
-	if (offline) {
-		ret = xocl_subdev_online_all(lro);
-		if (ret) {
-			device_unlock(dev);
-			xocl_err(dev, "Online subdevices failed");
-			return -EIO;
-		}
-		ret = health_thread_start(lro);
-		if (ret) {
-			device_unlock(dev);
-			xocl_err(dev, "start health thread failed");
-			return -EIO;
-		}
-		xocl_drvinst_offline(lro, false);
-	}
-	device_unlock(dev);
-
-	return count;
-}
-
-static DEVICE_ATTR(dev_online, 0644, dev_online_show, dev_online_store);
-#endif
-
 static ssize_t subdev_cmd_store(struct device *dev,
 	struct device_attribute *da, const char *buf, size_t count)
 {
 	struct xclmgmt_dev *lro = dev_get_drvdata(dev);
 	int ret = 0, i, subdev_num = 0;
 	char *name = (char *)buf;
-	char cmd[9] = { 0 }, sdev_name[33] = { 0 };
+	char cmd[32] = { 0 }, sdev_name[33] = { 0 };
 	struct xocl_subdev_info *subdev_info;
 
-	sscanf(name, "%8s %32s", cmd, sdev_name);
+	sscanf(name, "%32s %32s", cmd, sdev_name);
 
 	device_lock(dev);
 	if (!strcmp(cmd, "create") && !strcmp(sdev_name, "dynamic") ) {
@@ -277,7 +232,9 @@ static ssize_t subdev_cmd_store(struct device *dev,
 				i--) {
 			xocl_subdev_destroy_by_level(lro, i);
 		}
-	} else {
+	} else if (!strcmp(cmd, "update-userpf-blob")) {
+		xclmgmt_update_userpf_blob(lro);
+	}else {
 		xocl_err(dev, "Invalid command");
 		ret = -EINVAL;
 	}
@@ -468,8 +425,46 @@ static struct bin_attribute blob_input_attr = {
 	.size = 0
 };
 
+static ssize_t userpf_blob_output(struct file *filp, struct kobject *kobj,
+	struct bin_attribute *attr, char *buf, loff_t off, size_t count)
+{
+	struct device *dev = kobj_to_dev(kobj);
+	struct xclmgmt_dev *lro = dev_get_drvdata(dev);
+	unsigned char *blob;
+	size_t size;
+	ssize_t ret = 0;
+
+	if (!lro->userpf_blob)
+		goto bail;
+
+	blob = lro->userpf_blob;
+	size = fdt_totalsize(lro->userpf_blob);
+
+	if (off >= size)
+		goto bail;
+
+	if (off + count > size)
+		count = size - off;
+	memcpy(buf, blob + off, count);
+
+	ret = count;
+bail:
+
+	return ret;
+}
+
+static struct bin_attribute userpf_blob_attr = {
+	.attr = {
+		.name = "userpf_blob",
+		.mode = 0400
+	},
+	.read = userpf_blob_output,
+	.size = 0
+};
+
 static struct bin_attribute  *mgmt_bin_attrs[] = {
 	&blob_input_attr,
+	&userpf_blob_attr,
 	NULL,
 };
 

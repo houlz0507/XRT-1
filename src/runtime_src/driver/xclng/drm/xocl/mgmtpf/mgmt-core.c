@@ -615,6 +615,44 @@ static void xclmgmt_get_data(struct xclmgmt_dev *lro, void *buf)
 
 }
 
+static void xclmgmt_subdev_get_data(struct xclmgmt_dev *lro, size_t offset,
+		size_t buf_sz, void **resp, size_t *actual_sz)
+{
+	struct xcl_subdev	*hdr;
+	size_t			data_sz, fdt_sz;
+
+	mgmt_info(lro, "userpf requests subdev information");
+
+	data_sz = sizeof(*hdr);
+	fdt_sz = lro->userpf_blob ? fdt_totalsize(lro->userpf_blob) : 0;
+	data_sz += fdt_sz > offset ? (fdt_sz - offset) : 0;
+
+	*actual_sz = min_t(size_t, buf_sz, data_sz);
+	*resp = vzalloc(*actual_sz);
+	if (!*resp) {
+		mgmt_err(lro, "allocate resp failed");
+		return;
+	}
+
+	/* if it is invalid req, do nothing */
+	if (*actual_sz < sizeof(*hdr)) {
+		mgmt_err(lro, "Req buffer is too small");
+		return;
+	}
+
+	hdr = *resp;
+	hdr->ver = XOCL_MSG_SUBDEV_VER;
+	hdr->size = *actual_sz - sizeof(*hdr);
+	hdr->offset = offset;
+	memcpy(hdr->data, (char *)lro->userpf_blob + offset, hdr->size);
+	if (*actual_sz == sizeof(*hdr))
+		hdr->rtncode = XOCL_MSG_SUBDEV_RTN_EMPTY;
+	else if (hdr->size + offset < fdt_sz)
+		hdr->rtncode = XOCL_MSG_SUBDEV_RTN_PARTIAL;
+	else
+		hdr->rtncode = XOCL_MSG_SUBDEV_RTN_COMPLETE;
+}
+
 static int xclmgmt_read_subdev_req(struct xclmgmt_dev *lro, char *data_ptr, void **resp, size_t *sz)
 {
 	size_t resp_sz = 0, current_sz;
@@ -637,6 +675,10 @@ static int xclmgmt_read_subdev_req(struct xclmgmt_dev *lro, char *data_ptr, void
 		current_sz = sizeof(struct xcl_common);
 		*resp = vzalloc(current_sz);
 		(void) xclmgmt_get_data(lro, *resp);
+		break;
+	case SUBDEV:
+		xclmgmt_subdev_get_data(lro, subdev_req->offset,
+			subdev_req->size, resp, &current_sz);
 		break;
 	default:
 		break;
@@ -1032,6 +1074,9 @@ static void xclmgmt_remove(struct pci_dev *pdev)
 
 	if (lro->core.fdt_blob)
 		vfree(lro->core.fdt_blob);
+
+	if (lro->userpf_blob)
+		vfree(lro->userpf_blob);
 
 	dev_set_drvdata(&pdev->dev, NULL);
 

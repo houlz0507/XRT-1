@@ -114,6 +114,8 @@ struct xclmgmt_dev {
 	struct xocl_subdev *dyn_subdev_store;
 	int dyn_subdev_num;
 
+	void *userpf_blob;
+
 	char *bin_buffer;
 	size_t bin_length;
 
@@ -142,6 +144,7 @@ void xclmgmt_reset_pci(struct xclmgmt_dev *lro);
 
 void xclmgmt_mailbox_srv(void *arg, void *data, size_t len,
 		        u64 msgid, int err, bool sw_ch);
+int xclmgmt_update_userpf_blob(struct xclmgmt_dev *lro);
 
 /* firewall.c */
 void init_firewall(struct xclmgmt_dev *lro);

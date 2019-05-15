@@ -199,6 +199,7 @@ static void xocl_mb_connect(struct xocl_dev *xdev)
 	size_t reqlen = 0;
 	size_t resplen = sizeof(struct mailbox_conn_resp);
 	void *kaddr = NULL;
+	int ret, retry_count = 3;
 
 	if (!resp)
 		goto done;
@@ -221,7 +222,7 @@ static void xocl_mb_connect(struct xocl_dev *xdev)
 	mb_conn->crc32 = crc32c_le(~0, kaddr, PAGE_SIZE);
 	mb_conn->version = MB_PROTOCOL_VER;
 
-	(void) xocl_peer_request(xdev, mb_req, reqlen, resp, &resplen,
+	ret = xocl_peer_request(xdev, mb_req, reqlen, resp, &resplen,
 		NULL, NULL);
 	(void) xocl_mailbox_set(xdev, CHAN_STATE, resp->conn_flags);
 	(void) xocl_mailbox_set(xdev, CHAN_SWITCH, resp->chan_switch);
@@ -229,10 +230,23 @@ static void xocl_mb_connect(struct xocl_dev *xdev)
 
 	userpf_info(xdev, "ch_state 0x%llx\n", resp->conn_flags);
 
+	if (!ret) {
+		do {
+			ret = xocl_update_fdt(xdev);
+			retry_count --;
+			if (ret == -EAGAIN) {
+				userpf_info(xdev, "retry update fdt");
+				msleep(100);
+			}
+		} while (ret == -EAGAIN && retry_count > 0);
+	}
 done:
-	kfree(kaddr);
-	vfree(mb_req);
-	vfree(resp);
+	if (!kaddr)
+		kfree(kaddr);
+	if (!mb_req)
+		vfree(mb_req);
+	if (!resp)
+		vfree(resp);
 }
 
 int xocl_reclock(struct xocl_dev *xdev, void *data)
@@ -362,6 +376,93 @@ done:
 uint64_t xocl_get_data(struct xocl_dev *xdev, enum data_kind kind)
 {
 	return xocl_read_from_peer(xdev, kind);
+}
+
+int xocl_update_fdt(struct xocl_dev *xdev)
+{
+	struct mailbox_subdev_peer subdev_peer = {0};
+	size_t data_len = sizeof(struct mailbox_subdev_peer);
+	struct mailbox_req	*mb_req = NULL;
+	size_t reqlen = sizeof(struct mailbox_req) + data_len;
+	struct xcl_subdev	*resp = NULL;
+	size_t resp_len = sizeof(*resp) + XOCL_MSG_SUBDEV_DATA_LEN;
+        char *blob = NULL, *tmp;
+	uint64_t sync_id;
+	size_t offset = 0;
+	int ret = 0;
+
+	userpf_info(xdev, "get fdt from peer");
+	mb_req = vzalloc(reqlen);
+	if (!mb_req) {
+		ret = -ENOMEM;
+		goto failed;
+	}
+
+	resp = vzalloc(resp_len);
+	if (!resp) {
+		ret = -ENOMEM;
+		goto failed;
+	}
+
+	mb_req->req = MAILBOX_REQ_PEER_DATA;
+
+	subdev_peer.size = resp_len;
+	subdev_peer.kind = SUBDEV;
+
+	memcpy(mb_req->data, &subdev_peer, data_len);
+
+	do {
+		tmp = vzalloc(offset + resp_len);
+		if (!tmp) {
+			ret = -ENOMEM;
+			goto failed;
+		}
+
+		if (blob) {
+			memcpy(tmp, blob, offset);
+			vfree(blob);
+		}
+		blob = tmp;
+
+		subdev_peer.offset = offset;
+		ret = xocl_peer_request(xdev, mb_req, reqlen,
+			resp, &resp_len, NULL, NULL);
+		if (ret)
+			goto failed;
+
+		if (!offset)
+			sync_id = resp->sync_id;
+		else if (sync_id != resp->sync_id) {
+			ret = -EAGAIN;
+			goto failed;
+		} else if (offset != resp->offset) {
+			ret = -EINVAL;
+			goto failed;
+		} else if (resp->rtncode != XOCL_MSG_SUBDEV_RTN_PARTIAL &&
+			resp->rtncode != XOCL_MSG_SUBDEV_RTN_COMPLETE) {
+			ret = -EINVAL;
+			goto failed;
+		}
+
+		memcpy(blob + offset, resp->data, resp->size);
+		offset += resp->size;
+	} while (resp->rtncode == XOCL_MSG_SUBDEV_RTN_PARTIAL);
+
+	if (xdev->core.fdt_blob)
+		vfree(xdev->core.fdt_blob);
+	xdev->core.fdt_blob = blob;
+
+	return 0;
+
+failed:
+	if (blob)
+		vfree(blob);
+	if (mb_req)
+		vfree(mb_req);
+	if (resp)
+		vfree(resp);
+
+	return ret;
 }
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 13, 0)

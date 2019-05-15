@@ -173,6 +173,8 @@ void user_pci_reset_prepare(struct pci_dev *pdev);
 void user_pci_reset_done(struct pci_dev *pdev);
 #endif
 
+int xocl_update_fdt(struct xocl_dev *xdev);
+
 u32 get_live_clients(struct xocl_dev *xdev, pid_t **pid_list);
 void reset_notify_client_ctx(struct xocl_dev *xdev);
 

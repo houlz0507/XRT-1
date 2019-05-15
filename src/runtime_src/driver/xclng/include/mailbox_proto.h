@@ -151,6 +151,12 @@ struct xcl_common {
  * Data structure used to fetch SUBDEV group
  */
 struct xcl_subdev {
+	uint32_t ver;
+	int32_t rtncode;
+	uint64_t sync_id;
+	size_t size;
+	size_t offset;
+	uint64_t data[1];
 };
 
 /**

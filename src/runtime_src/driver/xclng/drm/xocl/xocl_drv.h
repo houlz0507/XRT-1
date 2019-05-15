@@ -266,6 +266,7 @@ struct xocl_dev_core {
 	struct delayed_work	reset_work;
 
 	char			*fdt_blob;
+	u32			fdt_sync_count;
 	struct xocl_board_private priv;
 
 	rwlock_t		rwlock;
@@ -747,6 +748,16 @@ struct xocl_icap_funcs {
 xdev_handle_t xocl_get_xdev(struct platform_device *pdev);
 void xocl_init_dsa_priv(xdev_handle_t xdev_hdl);
 
+/* subdev mbx messages */
+#define XOCL_MSG_SUBDEV_VER	1
+#define XOCL_MSG_SUBDEV_DATA_LEN	(512 * 1024)
+
+enum {
+	XOCL_MSG_SUBDEV_RTN_EMPTY = 1,
+	XOCL_MSG_SUBDEV_RTN_PARTIAL,
+	XOCL_MSG_SUBDEV_RTN_COMPLETE,
+};
+
 /* subdev functions */
 int xocl_subdev_init(xdev_handle_t xdev_hdl);
 void xocl_subdev_fini(xdev_handle_t xdev_hdl);
@@ -816,6 +827,8 @@ int xocl_fdt_blob_input(xdev_handle_t xdev_hdl, char *blob, size_t len,
 		struct xocl_subdev *subdevs, int *subdev_num);
 int xocl_fdt_remove_subdevs(xdev_handle_t xdev_hdl, struct list_head *devlist);
 int xocl_fdt_unlink_node(xdev_handle_t xdev_hdl, void *node);
+int xocl_fdt_overlay(void *fdt, int target, void *fdto, int node, int pf);
+int xocl_fdt_get_userpf(xdev_handle_t xdev_hdl, void *blob);
 
 /* init functions */
 int __init xocl_init_userpf(void);

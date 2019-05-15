@@ -178,12 +178,42 @@ static struct xocl_subdev_map		subdev_map[] = {
 /*
  * Functions to parse dtc and create sub devices
  */
+#define XOCL_FDT_ALL	-1
 
-static int overlay_apply_node(void *fdt, int target,
-			      void *fdto, int node)
+static int get_prop_in_node(void *fdt, int node, char *propname,
+		void *propval, int proplen)
+{
+	int len;
+	const void *val;
+	int depth = 1;
+
+	do {
+		val = fdt_getprop(fdt, node, propname, &len);
+		if (val && (len == proplen) && (memcmp(val, propval, len) == 0))
+			return node;
+		node = fdt_next_node(fdt, node, &depth);
+		if (node < 0 || depth < 1)
+			return -FDT_ERR_NOTFOUND;
+	} while (depth > 1);
+
+	return -FDT_ERR_NOTFOUND;
+}
+
+int xocl_fdt_overlay(void *fdt, int target,
+			      void *fdto, int node, int pf)
 {
 	int property;
 	int subnode;
+	int ret = 0;
+	u32 pfnum = htonl(pf);
+
+	if (pf != XOCL_FDT_ALL &&
+		get_prop_in_node(fdto, node, "PFMapping_u32", &pfnum,
+		sizeof(pfnum)) < 0) {
+			/* skip this node */
+			ret = fdt_del_node(fdt, target);
+			return ret;
+	}
 
 	fdt_for_each_property_offset(property, fdto, node) {
 		const char *name;
@@ -206,7 +236,6 @@ static int overlay_apply_node(void *fdt, int target,
 	fdt_for_each_subnode(subnode, fdto, node) {
 		const char *name = fdt_get_name(fdto, subnode, NULL);
 		int nnode;
-		int ret;
 
 		nnode = fdt_add_subnode(fdt, target, name);
 		if (nnode == -FDT_ERR_EXISTS) {
@@ -218,7 +247,7 @@ static int overlay_apply_node(void *fdt, int target,
 		if (nnode < 0)
 			return nnode;
 
-		ret = overlay_apply_node(fdt, nnode, fdto, subnode);
+		ret = xocl_fdt_overlay(fdt, nnode, fdto, subnode, pf);
 		if (ret)
 			return ret;
 	}
@@ -528,59 +557,72 @@ failed:
 	return dev_num;
 }
 
-int xocl_fdt_blob_input(xdev_handle_t xdev_hdl, char *blob, size_t len,
+int xocl_fdt_blob_input(xdev_handle_t xdev_hdl, char *blob, size_t length,
 		struct xocl_subdev *subdevs, int *subdev_num)
 {
 	struct xocl_dev_core	*core = XDEV(xdev_hdl);
 	char			*input_blob;
+	int			len;
 	int			ret;
 
-	input_blob = vmalloc(XOCL_MAX_FDT_LEN);
+	len = fdt_totalsize(blob) * 2;
+	if (core->fdt_blob)
+		len += fdt_totalsize(core->fdt_blob);
+
+	input_blob = vmalloc(len);
 	if (!input_blob)
 		return -ENOMEM;
 
-	ret = fdt_create_empty_tree(input_blob, XOCL_MAX_FDT_LEN);
+	ret = fdt_create_empty_tree(input_blob, len);
 	if (ret) {
 		xocl_xdev_err(xdev_hdl, "create input blob failed %d", ret);
 		goto failed;
 	}
-	overlay_apply_node(input_blob, 0, blob, 0);
-	if (ret) {
-		xocl_xdev_err(xdev_hdl, "overlay input blob failed %d", ret);
-		goto failed;
-	}
 
-	if (!core->fdt_blob) {
-		//memcpy(core->fdt_blob, blob, len);
-		core->fdt_blob = vmalloc(XOCL_MAX_FDT_LEN);
-		if (!core->fdt_blob) {
-			ret = -ENOMEM;
-			goto failed;
-		}
-
-		ret = fdt_create_empty_tree(core->fdt_blob, XOCL_MAX_FDT_LEN);
+	if (core->fdt_blob) {
+		ret = xocl_fdt_overlay(input_blob, 0, core->fdt_blob, 0, XOCL_FDT_ALL);
 		if (ret) {
-			xocl_xdev_err(xdev_hdl, "create fdt failed %d", ret);
+			xocl_xdev_err(xdev_hdl, "overlay fdt_blob failed %d", ret);
 			goto failed;
 		}
 	}
 
-	ret = overlay_apply_node(core->fdt_blob, 0, input_blob, 0);
+	ret = xocl_fdt_overlay(input_blob, 0, blob, 0, XOCL_FDT_ALL);
 	if (ret) {
-		xocl_xdev_err(xdev_hdl, "Overlay blob failed %d", ret);
+		xocl_xdev_err(xdev_hdl, "Overlay input blob failed %d", ret);
 		goto failed;
 	}
 
-	vfree(input_blob);
-
-	ret = xocl_fdt_parse_blob(xdev_hdl, core->fdt_blob, subdevs);
+	ret = xocl_fdt_parse_blob(xdev_hdl, input_blob, subdevs);
 	if (ret < 0)
 		goto failed;
 	*subdev_num = ret;
+
+	if (core->fdt_blob)
+		vfree(core->fdt_blob);
+
+	core->fdt_blob = input_blob;
 
 	return 0;
 
 failed:
 	vfree(input_blob);
 	return ret;
+}
+
+int xocl_fdt_get_userpf(xdev_handle_t xdev_hdl, void *blob)
+{
+	int offset;
+	const u32 *pfnum;
+
+	offset = fdt_node_offset_by_prop_value(blob, -1,
+			"Name_sz", "dma", strlen("dma") + 1);
+	if (offset < 0)
+		return -ENODEV;
+
+	pfnum = fdt_getprop(blob, offset, "PFMapping_u32", NULL);
+	if (!pfnum)
+		return -EINVAL;
+
+	return ntohl(*pfnum);
 }
