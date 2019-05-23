@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2019 Xilinx, Inc
  *
  * Licensed under the Apache License, Version 2.0 (the "License"). You may
@@ -33,22 +33,23 @@
 #define UUID_SZ		16
 
 /**
- * mailbox_req OPCODE
- *
- * @MAILBOX_REQ_UNKNOWN - invalid OP code
- * @MAILBOX_REQ_TEST_READY - test msg is ready (post only, internal test only)
- * @MAILBOX_REQ_TEST_READ - fetch test msg from peer (internal test only)
- * @MAILBOX_REQ_LOCK_BITSTREAM - lock down xclbin on mgmt pf
- * @MAILBOX_REQ_UNLOCK_BITSTREAM - unlock xclbin on mgmt pf
- * @MAILBOX_REQ_HOT_RESET - request mgmt pf driver to reset the board
- * @MAILBOX_REQ_FIREWALL - firewall trip detected on mgmt pf (post only)
- * @MAILBOX_REQ_LOAD_XCLBIN_KADDR - download xclbin (pointed to by a pointer)
- * @MAILBOX_REQ_LOAD_XCLBIN - download xclbin (bitstream is in payload)
- * @MAILBOX_REQ_RECLOCK - set clock frequency
- * @MAILBOX_REQ_PEER_DATA - read specified data from peer
- * @MAILBOX_REQ_USER_PROBE - for user pf to probe the peer mgmt pf
- * @MAILBOX_REQ_MGMT_STATE - for mgmt pf to notify user pf of its state change
- *                           (post only)
+ * enum mailbox_request - List of all mailbox request OPCODE
+ * @MAILBOX_REQ_UNKNOWN: invalid OP code
+ * @MAILBOX_REQ_TEST_READY: test msg is ready (post only, internal test only)
+ * @MAILBOX_REQ_TEST_READ: fetch test msg from peer (internal test only)
+ * @MAILBOX_REQ_LOCK_BITSTREAM: lock down xclbin on mgmt pf
+ * @MAILBOX_REQ_UNLOCK_BITSTREAM: unlock xclbin on mgmt pf
+ * @MAILBOX_REQ_HOT_RESET: request mgmt pf driver to reset the board
+ * @MAILBOX_REQ_FIREWALL: firewall trip detected on mgmt pf (post only)
+ * @MAILBOX_REQ_LOAD_XCLBIN_KADDR: download xclbin (pointed to by a pointer)
+ * @MAILBOX_REQ_LOAD_XCLBIN: download xclbin (bitstream is in payload)
+ * @MAILBOX_REQ_RECLOCK: set clock frequency
+ * @MAILBOX_REQ_PEER_DATA: read specified data from peer
+ * @MAILBOX_REQ_USER_PROBE: for user pf to probe the peer mgmt pf
+ * @MAILBOX_REQ_MGMT_STATE: for mgmt pf to notify user pf of its state change
+ *                          (post only)
+ * @MAILBOX_REQ_CHG_SHELL: shell change is required on mgmt pf (post only)
+ * @MAILBOX_REQ_PROGRAM_SHELL: request mgmt pf driver to reprogram shell
  */
 enum mailbox_request {
 	MAILBOX_REQ_UNKNOWN =		0,
@@ -64,21 +65,27 @@ enum mailbox_request {
 	MAILBOX_REQ_PEER_DATA =		10,
 	MAILBOX_REQ_USER_PROBE =	11,
 	MAILBOX_REQ_MGMT_STATE =	12,
+	MAILBOX_REQ_CHG_SHELL =		13,
+	MAILBOX_REQ_PROGRAM_SHELL =	14,
 	/* Version 0 OP code ends */
 };
 
 /**
- * MAILBOX_REQ_LOCK_BITSTREAM &
- * MAILBOX_REQ_UNLOCK_BITSTREAM payload type
- *
- * @uuid - uuid of the xclbin
+ * struct mailbox_req_bitstream_lock - MAILBOX_REQ_LOCK_BITSTREAM and
+ * 				       MAILBOX_REQ_UNLOCK_BITSTREAM payload type
+ * @uuid: uuid of the xclbin
  */
 struct mailbox_req_bitstream_lock {
 	uint64_t reserved;
 	uint8_t uuid[UUID_SZ];
 };
 
-
+/**
+ * enum group_kind - Groups of data that can be fetched from mgmt side
+ * @SENSOR: all kinds of sensor readings
+ * @ICAP: ICAP IP related information
+ * @MGMT: mgmt side specific information
+ */
 enum group_kind {
 	SENSOR = 0,
 	ICAP,
@@ -87,7 +94,7 @@ enum group_kind {
 };
 
 /**
- * Data structure used to fetch SENSOR group
+ * struct xcl_sensor - Data structure used to fetch SENSOR group
  */
 struct xcl_sensor {
 	uint64_t vol_12v_pex;
@@ -125,7 +132,7 @@ struct xcl_sensor {
 };
 
 /**
- * Data structure used to fetch ICAP group
+ * struct xcl_hwicap - Data structure used to fetch ICAP group
  */
 struct xcl_hwicap {
 	uint64_t freq_0;
@@ -141,7 +148,7 @@ struct xcl_hwicap {
 };
 
 /**
- * Data structure used to fetch MGMT group
+ * struct xcl_common - Data structure used to fetch MGMT group
  */
 struct xcl_common {
 	uint64_t mig_calib;
@@ -153,16 +160,16 @@ struct xcl_common {
 struct xcl_subdev {
 	uint32_t ver;
 	int32_t rtncode;
-	uint64_t sync_id;
+	uint64_t checksum;
 	size_t size;
 	size_t offset;
 	uint64_t data[1];
 };
 
 /**
- * MAILBOX_REQ_PEER_DATA payload type
- * @kind - data group
- * @size - buffer size for receiving response
+ * struct mailbox_subdev_peer - MAILBOX_REQ_PEER_DATA payload type
+ * @kind: data group
+ * @size: buffer size for receiving response
  * @offset - indicate the start point
  */
 struct mailbox_subdev_peer {
@@ -172,11 +179,11 @@ struct mailbox_subdev_peer {
 };
 
 /**
- * MAILBOX_REQ_USER_PROBE payload type
- * @kaddr - KVA of the verification data buffer
- * @paddr - physical addresss of the verification data buffer
- * @crc32 - CRC value of the verification data buffer
- * @version - protocol version supported by peer
+ * struct mailbox_conn - MAILBOX_REQ_USER_PROBE payload type
+ * @kaddr: KVA of the verification data buffer
+ * @paddr: physical addresss of the verification data buffer
+ * @crc32: CRC value of the verification data buffer
+ * @version: protocol version supported by peer
  */
 struct mailbox_conn {
 	uint64_t kaddr;
@@ -185,16 +192,16 @@ struct mailbox_conn {
 	uint32_t version;
 };
 
-/**
- * MAILBOX_REQ_USER_PROBE response payload type
- * @version - protocol version should be used
- * @conn_flags - connection status
- * @chan_switch - bitmap to indicate SW / HW channel for each OP code msg
- * @comm_id - user defined cookie
- */
 #define	COMM_ID_SIZE		2048
 #define MB_PEER_READY		(1UL << 0)
 #define MB_PEER_SAME_DOMAIN	(1UL << 1)
+/**
+ * struct mailbox_conn_resp - MAILBOX_REQ_USER_PROBE response payload type
+ * @version: protocol version should be used
+ * @conn_flags: connection status
+ * @chan_switch: bitmap to indicate SW / HW channel for each OP code msg
+ * @comm_id: user defined cookie
+ */
 struct mailbox_conn_resp {
 	uint32_t version;
 	uint32_t reserved;
@@ -203,44 +210,44 @@ struct mailbox_conn_resp {
 	char comm_id[COMM_ID_SIZE];
 };
 
-/**
- * MAILBOX_REQ_MGMT_STATE payload type
- * @state_flags - peer state flags
- */
 #define	MB_STATE_ONLINE		(1UL << 0)
 #define	MB_STATE_OFFLINE	(1UL << 1)
+/**
+ * struct mailbox_peer_state - MAILBOX_REQ_MGMT_STATE payload type
+ * @state_flags: peer state flags
+ */
 struct mailbox_peer_state {
 	uint64_t state_flags;
 };
 
 /**
- * MAILBOX_REQ_LOAD_XCLBIN_KADDR payload type
- * @addr - pointer to xclbin body
+ * struct mailbox_bitstream_kaddr - MAILBOX_REQ_LOAD_XCLBIN_KADDR payload type
+ * @addr: pointer to xclbin body
  */
 struct mailbox_bitstream_kaddr {
 	uint64_t addr;
 };
 
 /**
- * MAILBOX_REQ_RECLOCK payload type
- * @region - region of clock
- * @target_freqs - array of target clock frequencies (max clocks: 16)
+ * struct mailbox_clock_freqscaling - MAILBOX_REQ_RECLOCK payload type
+ * @region: region of clock
+ * @target_freqs: array of target clock frequencies (max clocks: 16)
  */
 struct mailbox_clock_freqscaling {
 	unsigned int region;
 	unsigned short target_freqs[16];
 };
 
-/**
- * mailbox request message header
- * @req - opcode
- * @data_len - payload size
- * @flags - flags of this message
- * @data - payload of variable length
- */
 #define MB_REQ_FLAG_RESPONSE	(1 << 0)
 #define MB_REQ_FLAG_REQUEST	(1 << 1)
 #define MB_REQ_FLAG_RECV_REQ	(1 << 2)
+/**
+ * struct mailbox_req - mailbox request message header
+ * @req: opcode
+ * @data_len: payload size
+ * @flags: flags of this message
+ * @data: payload of variable length
+ */
 struct mailbox_req {
 	enum mailbox_request req;
 	uint32_t data_len;
@@ -249,11 +256,11 @@ struct mailbox_req {
 };
 
 /**
- * mailbox software channel message metadata
- * @sz - payload size
- * @flags - flags of this message as in mailbox_req
- * @id - message ID
- * @data - payload
+ * struct sw_chan - mailbox software channel message metadata
+ * @sz: payload size
+ * @flags: flags of this message as in mailbox_req
+ * @id: message ID
+ * @data: payload (request or response buffer)
  */
 struct sw_chan {
 	uint64_t sz;

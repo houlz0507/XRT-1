@@ -19,6 +19,8 @@
 #include "xocl_drv.h"
 #include "version.h"
 
+#define LEVEL1_INT_NODE "/exposes/interfaces/level1"
+#define LEVEL1_DEV_PATH "/exposes/regions/level1_prp/ips"
 struct ip_node {
 	const char *name;
 	int level;
@@ -27,6 +29,64 @@ struct ip_node {
 	u16 minor;
 };
 
+void *ert_build_priv(xdev_handle_t xdev_hdl, size_t *len)
+{
+	char *priv_data;
+
+	priv_data = vzalloc(1);
+	if (!priv_data) {
+		*len = 0;
+		return NULL;
+	}
+
+	*priv_data = 1;
+	*len = 1;
+
+	return priv_data;
+}
+
+void *rom_build_priv(xdev_handle_t xdev_hdl, size_t *len)
+{
+	char *priv_data;
+	struct xocl_dev_core *core = XDEV(xdev_hdl);
+	void *blob;
+	const char *vrom;
+	int node, proplen;
+
+	pr_info("BLOB %p\n", core->fdt_blob);
+
+	blob = core->fdt_blob;
+	if (!blob)
+		goto failed;
+
+	node = fdt_path_offset(blob, LEVEL1_DEV_PATH
+			"/featurerom/segments/segment@1");
+	if (node < 0) {
+		xocl_xdev_err(xdev_hdl, "did not find featurerom node");
+		goto failed;
+	}
+
+	vrom = fdt_getprop(blob, node, "vrom", &proplen);
+	if (!vrom) {
+		xocl_xdev_err(xdev_hdl, "did not find vrom prop");
+		goto failed;
+	}
+
+	priv_data = vmalloc(proplen);
+	if (!priv_data)
+		goto failed;
+	pr_info("LEN %d, vrom %c%c%c%c\n", proplen, vrom[0], vrom[1], vrom[2], vrom[3]);
+
+	memcpy(priv_data, vrom, proplen);
+	*len = (size_t)proplen;
+
+	return priv_data;
+
+failed:
+	*len = 0;
+	return NULL;
+}
+
 static struct xocl_subdev_map		subdev_map[] = {
 	{
 		XOCL_SUBDEV_FEATURE_ROM,
@@ -34,7 +94,7 @@ static struct xocl_subdev_map		subdev_map[] = {
 		{ "featurerom", NULL },
 		1,
 		0,
-		NULL,
+		rom_build_priv,
        	},
 	{
 		XOCL_SUBDEV_DMA,
@@ -55,10 +115,14 @@ static struct xocl_subdev_map		subdev_map[] = {
 	{
 		XOCL_SUBDEV_MB_SCHEDULER,
 		XOCL_MB_SCHEDULER,
-		{ "ertsched", NULL },
-		1,
+		{
+			"ertsched",
+			"ertcqbram",
+			NULL
+		},
+		2,
 		XOCL_SUBDEV_MAP_USERPF_ONLY,
-		NULL,
+		ert_build_priv,
        	},
 	{
 		XOCL_SUBDEV_XVC_PUB,
@@ -180,23 +244,28 @@ static struct xocl_subdev_map		subdev_map[] = {
  */
 #define XOCL_FDT_ALL	-1
 
-static int get_prop_in_node(void *fdt, int node, char *propname,
-		void *propval, int proplen)
+static bool get_userpf_info(void *fdt, int node, u32 pf)
 {
 	int len;
 	const void *val;
 	int depth = 1;
+	const char *pfidx_prop = "PFMapping_u32";
+	const char *prp_level = "level1";
+	const char *name;
 
 	do {
-		val = fdt_getprop(fdt, node, propname, &len);
-		if (val && (len == proplen) && (memcmp(val, propval, len) == 0))
-			return node;
+		val = fdt_getprop(fdt, node, pfidx_prop, &len);
+		if (val && (len == sizeof(pf)) && htonl(*(u32 *)val) == pf)
+			return true;
+		name = fdt_get_name(fdt, node, NULL);
+		if (name && !strncmp(name, prp_level, strlen(prp_level)))
+			return true;
 		node = fdt_next_node(fdt, node, &depth);
 		if (node < 0 || depth < 1)
-			return -FDT_ERR_NOTFOUND;
+			return false;
 	} while (depth > 1);
 
-	return -FDT_ERR_NOTFOUND;
+	return false;
 }
 
 int xocl_fdt_overlay(void *fdt, int target,
@@ -205,11 +274,9 @@ int xocl_fdt_overlay(void *fdt, int target,
 	int property;
 	int subnode;
 	int ret = 0;
-	u32 pfnum = htonl(pf);
 
 	if (pf != XOCL_FDT_ALL &&
-		get_prop_in_node(fdto, node, "PFMapping_u32", &pfnum,
-		sizeof(pfnum)) < 0) {
+		!get_userpf_info(fdto, node, pf)) {
 			/* skip this node */
 			ret = fdt_del_node(fdt, target);
 			return ret;
@@ -358,45 +425,37 @@ static int xocl_fdt_next_ip(xdev_handle_t xdev_hdl, char *blob,
 		int off, struct ip_node *ip)
 {
 	char *l0_path = "/_self_/ips";
-	char *l1_path = "/exposes/regions/level1_prp/ips";
+	char *l1_path = LEVEL1_DEV_PATH;
 	int l1_off, l0_off, node, end;
 	const u16 *ver;
 
 	l0_off = fdt_path_offset(blob, l0_path);
-	if (l0_off < 0) {
-		xocl_xdev_err(xdev_hdl, "Did not find l0 devices");
-		return -ENODEV;
-	}
-
-	if (off == 0) {
+	if (off <= l0_off) {
 		ip->level = XOCL_SUBDEV_LEVEL_BLD;
 		node = fdt_first_subnode(blob, l0_off);
 		goto found;
-	}
-
-	end = fdt_next_subnode(blob, l0_off);
-	if (end < 0 || off < end) {
-		node = fdt_next_subnode(blob, off);
-		if (node > 0) {
-			ip->level = XOCL_SUBDEV_LEVEL_BLD;
-			goto found;
+	} else if (l0_off >= 0) {
+		end = fdt_next_subnode(blob, l0_off);
+		if (end < 0 || off < end) {
+			node = fdt_next_subnode(blob, off);
+			if (node > 0) {
+				ip->level = XOCL_SUBDEV_LEVEL_BLD;
+				goto found;
+			}
 		}
 	}
 	
 	l1_off = fdt_path_offset(blob, l1_path);
-	if (l1_off < 0)
-		return -ENODEV;
-
-	if (off < l1_off) {
+	if (off <= l1_off) {
 		ip->level = XOCL_SUBDEV_LEVEL_PRP;
 		node = fdt_first_subnode(blob, l1_off);
 		goto found;
-	}
-
-	node = fdt_next_subnode(blob, off);
-	if (node > 0) {
-		ip->level = XOCL_SUBDEV_LEVEL_PRP;
-		goto found;
+	} else if (l1_off >= 0) {
+		node = fdt_next_subnode(blob, off);
+		if (node > 0) {
+			ip->level = XOCL_SUBDEV_LEVEL_PRP;
+			goto found;
+		}
 	}
 
 	return -ENODEV;
@@ -406,8 +465,10 @@ found:
 
 	/* Get Version */
 	ver = fdt_getprop(blob, node, "Version_au16", NULL);
-	ip->major = ntohs(ver[0]);
-	ip->minor = ntohs(ver[1]);
+	if (ver) {
+		ip->major = ntohs(ver[0]);
+		ip->minor = ntohs(ver[1]);
+	}
 
 	return node;
 }
@@ -486,15 +547,18 @@ static int xocl_fdt_get_devinfo(xdev_handle_t xdev_hdl, char *blob,
 	dev_num = 0;
 	for (i = 0; i < sz; i++) {
 		if ((map_p->flags & XOCL_SUBDEV_MAP_USERPF_ONLY) &&
-			subdevs[i].pf == XOCL_PCI_FUNC(xdev_hdl))
+			subdevs[i].pf != xocl_fdt_get_userpf(xdev_hdl, blob))
 			continue;
+
 		if (subdevs[i].info.dyn_ip >= map_p->required_ip) {
 			subdevs[i].info.id = map_p->id;
 			subdevs[i].info.name = map_p->dev_name;
+			if (!rtn_subdevs) {
+				dev_num++;
+				continue;
+			}
 			memcpy(&rtn_subdevs[dev_num], &subdevs[i],
 					sizeof(struct xocl_subdev));
-			rtn_subdevs[dev_num].info.res =
-				rtn_subdevs[dev_num].res;
 			rtn_subdevs[dev_num].info.res =
 				rtn_subdevs[dev_num].res;
 			for (ip_num = 0;
@@ -502,7 +566,7 @@ static int xocl_fdt_get_devinfo(xdev_handle_t xdev_hdl, char *blob,
 				ip_num ++)
 				rtn_subdevs[dev_num].info.res[ip_num].name =
 					rtn_subdevs[dev_num].res_name[ip_num];
-			xocl_fdt_dump_subdev(xdev_hdl, &rtn_subdevs[dev_num]);
+
 			dev_num++;
 		}
 	}
@@ -527,7 +591,7 @@ static int xocl_fdt_parse_subdevs(xdev_handle_t xdev_hdl, char *blob,
 				continue;
 
 			num = xocl_fdt_get_devinfo(xdev_hdl, blob, map_p,
-					subdevs + total);
+					subdevs);
 			if (num < 0) {
 				xocl_xdev_err(xdev_hdl,
 					"get subdev info failed, dev name: %s",
@@ -536,6 +600,8 @@ static int xocl_fdt_parse_subdevs(xdev_handle_t xdev_hdl, char *blob,
 			}
 
 			total += num;
+			if (subdevs)
+				subdevs += num;
 		}
 	}
 
@@ -543,26 +609,32 @@ static int xocl_fdt_parse_subdevs(xdev_handle_t xdev_hdl, char *blob,
 }
 
 static int xocl_fdt_parse_blob(xdev_handle_t xdev_hdl, char *blob,
-		struct xocl_subdev *subdevs)
+		struct xocl_subdev **subdevs)
 {
 	int		dev_num; 
 
-	dev_num = xocl_fdt_parse_subdevs(xdev_hdl, blob, subdevs);
+	dev_num = xocl_fdt_parse_subdevs(xdev_hdl, blob, NULL);
 	if (dev_num < 0) {
 		xocl_xdev_err(xdev_hdl, "parse dev failed, ret = %d", dev_num);
 		goto failed;
 	}
 
+	*subdevs = vzalloc(dev_num * sizeof(**subdevs));
+	if (!*subdevs)
+		return -ENOMEM;
+
+	xocl_fdt_parse_subdevs(xdev_hdl, blob, *subdevs);
+
 failed:
 	return dev_num;
 }
 
-int xocl_fdt_blob_input(xdev_handle_t xdev_hdl, char *blob, size_t length,
-		struct xocl_subdev *subdevs, int *subdev_num)
+int xocl_fdt_blob_input(xdev_handle_t xdev_hdl, char *blob)
 {
 	struct xocl_dev_core	*core = XDEV(xdev_hdl);
+	struct xocl_subdev	*subdevs;
 	char			*input_blob;
-	int			len;
+	int			len, i;
 	int			ret;
 
 	len = fdt_totalsize(blob) * 2;
@@ -593,20 +665,29 @@ int xocl_fdt_blob_input(xdev_handle_t xdev_hdl, char *blob, size_t length,
 		goto failed;
 	}
 
-	ret = xocl_fdt_parse_blob(xdev_hdl, input_blob, subdevs);
+	ret = xocl_fdt_parse_blob(xdev_hdl, input_blob, &subdevs);
 	if (ret < 0)
 		goto failed;
-	*subdev_num = ret;
+	core->dyn_subdev_num = ret;
 
 	if (core->fdt_blob)
 		vfree(core->fdt_blob);
 
+	if (core->dyn_subdev_store)
+		vfree(core->dyn_subdev_store);
+
 	core->fdt_blob = input_blob;
+	core->dyn_subdev_store = subdevs;
+
+	for (i = 0; i < core->dyn_subdev_num; i++)
+		xocl_fdt_dump_subdev(xdev_hdl, &core->dyn_subdev_store[i]);
 
 	return 0;
 
 failed:
-	vfree(input_blob);
+	if (input_blob)
+		vfree(input_blob);
+
 	return ret;
 }
 
@@ -614,6 +695,9 @@ int xocl_fdt_get_userpf(xdev_handle_t xdev_hdl, void *blob)
 {
 	int offset;
 	const u32 *pfnum;
+
+	if (!blob)
+		return -EINVAL;
 
 	offset = fdt_node_offset_by_prop_value(blob, -1,
 			"Name_sz", "dma", strlen("dma") + 1);
@@ -625,4 +709,118 @@ int xocl_fdt_get_userpf(xdev_handle_t xdev_hdl, void *blob)
 		return -EINVAL;
 
 	return ntohl(*pfnum);
+}
+
+static const xuid_t *xocl_fdt_get_uuid(xdev_handle_t xdev_hdl, void *blob,
+		const char *node_path)
+{
+	int node;
+	const xuid_t *uuid;
+
+	if (!blob)
+		return NULL;
+
+
+	node = fdt_path_offset(blob, node_path);
+	if (node < 0) {
+		xocl_xdev_err(xdev_hdl, "Did not find node %s", node_path);
+		return NULL;
+	}
+
+	uuid = fdt_getprop(blob, node, "UUID_u128", NULL);
+	if (!uuid) {
+		xocl_xdev_err(xdev_hdl, "Did not find prp int uuid");
+		return NULL;
+	}
+
+	return uuid;
+}
+
+const xuid_t *xocl_fdt_get_prp_int_uuid(xdev_handle_t xdev_hdl, void *blob)
+{
+	return xocl_fdt_get_uuid(xdev_hdl, blob, LEVEL1_INT_NODE);
+}
+
+int xocl_fdt_build_priv_data(xdev_handle_t xdev_hdl, struct xocl_subdev *subdev,
+	void **priv_data, size_t *data_len)
+{
+	struct xocl_subdev_map  *map_p;
+	int j;
+
+	for (j = 0; j < ARRAY_SIZE(subdev_map); j++) {
+		map_p = &subdev_map[j];
+		if (map_p->id == subdev->info.id)
+			break;
+	}
+
+	if (j == ARRAY_SIZE(subdev_map)) {
+		/* should never hit */
+		xocl_xdev_err(xdev_hdl, "did not find dev map");
+		return -EFAULT;
+	}
+
+	if (!map_p->build_priv_data) {
+		*priv_data = NULL;
+		*data_len = 0;
+	} else
+		*priv_data = map_p->build_priv_data(xdev_hdl, data_len);
+
+
+	return 0;
+}
+
+int xocl_fdt_add_vrom(xdev_handle_t xdev_hdl, void *blob, void *rom)
+{
+	int l1_off, node, ret;
+	int pf;
+
+	pf = xocl_fdt_get_userpf(xdev_hdl, blob);
+	if (pf < 0) {
+		xocl_xdev_err(xdev_hdl, "did not get userpf");
+		return -EINVAL;
+	}
+
+	l1_off = fdt_path_offset(blob, LEVEL1_DEV_PATH);
+	if (l1_off < 0) {
+		xocl_xdev_err(xdev_hdl, "did not find %s",
+				LEVEL1_DEV_PATH);
+		return l1_off;
+	}
+
+	node = fdt_add_subnode(blob, l1_off, "featurerom");
+	if (node < 0) {
+		xocl_xdev_err(xdev_hdl, "add featurerom node failed %d",
+				node);
+		return node;
+	}
+
+	node = fdt_add_subnode(blob, node, "segments");
+	if (node < 0) {
+		xocl_xdev_err(xdev_hdl, "add segments node failed %d",
+				node);
+		return node;
+	}
+
+	node = fdt_add_subnode(blob, node, "segment@1");
+	if (node < 0) {
+		xocl_xdev_err(xdev_hdl, "add segment@1 node failed %d",
+				node);
+		return node;
+	}
+
+	pf = ntohl(pf);
+	ret = fdt_setprop(blob, node, "PFMapping_u32", &pf, sizeof pf);
+	if (ret) {
+		xocl_xdev_err(xdev_hdl, "set PFMapping failed %d",ret);
+		return ret;
+	}
+
+	ret = fdt_setprop(blob, node, "vrom", rom,
+			sizeof(struct FeatureRomHeader));
+	if (ret) {
+		xocl_xdev_err(xdev_hdl, "set vrom prop failed %d",ret);
+		return ret;
+	}
+
+	return 0;
 }

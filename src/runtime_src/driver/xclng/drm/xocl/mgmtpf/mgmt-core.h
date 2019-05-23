@@ -111,9 +111,6 @@ struct xclmgmt_dev {
 	int msix_user_start_vector;
 	bool ready;
 
-	struct xocl_subdev *dyn_subdev_store;
-	int dyn_subdev_num;
-
 	void *userpf_blob;
 
 	char *bin_buffer;
@@ -134,6 +131,8 @@ long mgmt_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);
 void get_pcie_link_info(struct xclmgmt_dev *lro,
 	unsigned short *width, unsigned short *speed, bool is_cap);
 
+void xclmgmt_connect_notify(struct xclmgmt_dev *lro, bool online);
+
 /* utils.c */
 unsigned compute_unit_busy(struct xclmgmt_dev *lro);
 int pci_fundamental_reset(struct xclmgmt_dev *lro);
@@ -145,6 +144,7 @@ void xclmgmt_reset_pci(struct xclmgmt_dev *lro);
 void xclmgmt_mailbox_srv(void *arg, void *data, size_t len,
 		        u64 msgid, int err, bool sw_ch);
 int xclmgmt_update_userpf_blob(struct xclmgmt_dev *lro);
+int xclmgmt_program_shell(struct xclmgmt_dev *lro);
 
 /* firewall.c */
 void init_firewall(struct xclmgmt_dev *lro);

@@ -35,6 +35,7 @@
 #ifndef	_XCL_DEVICES_H_
 #define	_XCL_DEVICES_H_
 
+#include <ert.h>
 /* board flags */
 enum {
         XOCL_DSAFLAG_PCI_RESET_OFF =            0x01,
@@ -183,7 +184,7 @@ struct xocl_subdev_map {
 	char	*ip_names[XOCL_SUBDEV_MAX_RES];
 	u32	required_ip;
 	u32	flags;
-	int	(*add_subdev)(unsigned long dev_hdl);
+	void	*(*build_priv_data)(void *dev_hdl, size_t *len);
 };
 
 #define	XOCL_RES_FEATURE_ROM				\
@@ -730,6 +731,17 @@ struct xocl_subdev_map {
 		 * programs CUs
 		 */					\
 			{				\
+			.start	= ERT_CSR_ADDR,		\
+			.end	= ERT_CSR_ADDR + 0xfff,	\
+			.flags	= IORESOURCE_MEM,	\
+			},				\
+			{				\
+			.start	= ERT_CQ_BASE_ADDR,	\
+			.end	= ERT_CQ_BASE_ADDR +	\
+		       		ERT_CQ_SIZE - 1,	\
+			.flags	= IORESOURCE_MEM,	\
+			},				\
+			{				\
 			.start	= 0,			\
 			.end	= 3,			\
 			.flags	= IORESOURCE_IRQ,	\
@@ -1256,11 +1268,8 @@ struct xocl_subdev_map {
 
 #define USER_RES_DYNAMIC_IP						\
 		((struct xocl_subdev_info []) {				\
-		 	XOCL_DEVINFO_FEATURE_ROM_DYN,			\
-		 	XOCL_DEVINFO_XDMA,				\
 		 	XOCL_DEVINFO_MAILBOX_USER_DYN,			\
 		 	XOCL_DEVINFO_SCHEDULER,				\
-		 	XOCL_DEVINFO_XVC_PUB_DYN,			\
 		 	XOCL_DEVINFO_ICAP_USER,				\
 		 	XOCL_DEVINFO_XMC_USER,				\
 		})
@@ -1304,10 +1313,11 @@ struct xocl_subdev_map {
 	{ XOCL_PCI_DEVID(0x10EE, 0x788F, 0x4352, MGMT_XBB_DSA52) },	\
 	{ XOCL_PCI_DEVID(0x10EE, 0x798F, 0x4352, MGMT_XBB_DSA52) },	\
 	{ XOCL_PCI_DEVID(0x10EE, 0x6A8F, 0x4353, MGMT_6A8F_DSA52) },	\
-	{ XOCL_PCI_DEVID(0x10EE, 0x5000, PCI_ANY_ID, MGMT_DYNAMIC_IP) },\
+	{ XOCL_PCI_DEVID(0x10EE, 0x5000, PCI_ANY_ID, MGMT_XBB_DSA52) },\
 	{ XOCL_PCI_DEVID(0x10EE, 0x5004, PCI_ANY_ID, MGMT_XBB_DSA52) },	\
 	{ XOCL_PCI_DEVID(0x10EE, 0x5008, PCI_ANY_ID, MGMT_XBB_DSA52_U280) },\
 	{ XOCL_PCI_DEVID(0x10EE, 0x500C, PCI_ANY_ID, MGMT_XBB_DSA52_U280) },\
+	{ XOCL_PCI_DEVID(0x10EE, 0x7020, PCI_ANY_ID, MGMT_DYNAMIC_IP) },\
 	{ XOCL_PCI_DEVID(0x13FE, 0x006C, PCI_ANY_ID, MGMT_6A8F) },	\
 	{ XOCL_PCI_DEVID(0x13FE, 0x0078, PCI_ANY_ID, MGMT_XBB_DSA52) },  \
 	{ XOCL_PCI_DEVID(0x10EE, 0xD000, PCI_ANY_ID, XBB_MFG("u200")) },\
@@ -1342,10 +1352,11 @@ struct xocl_subdev_map {
 	{ XOCL_PCI_DEVID(0x10EE, 0x7890, 0x4351, USER_XDMA) },		\
 	{ XOCL_PCI_DEVID(0x10EE, 0x7890, 0x4352, USER_DSA52) },		\
 	{ XOCL_PCI_DEVID(0x10EE, 0x7990, 0x4352, USER_DSA52) },		\
-	{ XOCL_PCI_DEVID(0x10EE, 0x5001, PCI_ANY_ID, USER_DYNAMIC_IP) },\
+	{ XOCL_PCI_DEVID(0x10EE, 0x5001, PCI_ANY_ID, USER_DSA52) },\
 	{ XOCL_PCI_DEVID(0x10EE, 0x5005, PCI_ANY_ID, USER_DSA52) },	\
 	{ XOCL_PCI_DEVID(0x10EE, 0x5009, PCI_ANY_ID, USER_DSA52) },	\
 	{ XOCL_PCI_DEVID(0x10EE, 0x500D, PCI_ANY_ID, USER_DSA52) },	\
+	{ XOCL_PCI_DEVID(0x10EE, 0x7021, PCI_ANY_ID, USER_DYNAMIC_IP) },\
 	{ XOCL_PCI_DEVID(0x13FE, 0x0065, PCI_ANY_ID, USER_XDMA) },	\
 	{ XOCL_PCI_DEVID(0x13FE, 0x0077, PCI_ANY_ID, USER_DSA52) },	\
 	{ XOCL_PCI_DEVID(0x1D0F, 0x1042, PCI_ANY_ID, USER_AWS) },	\

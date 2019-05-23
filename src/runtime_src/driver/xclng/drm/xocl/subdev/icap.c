@@ -475,6 +475,10 @@ static unsigned int icap_get_clock_frequency_counter_khz(const struct icap *icap
 	if (ICAP_PRIVILEGED(icap)) {
 		if (uuid_is_null(&icap->icap_bitstream_uuid))
 			return freq;
+		if (!icap->icap_clock_freq_counter) {
+			ICAP_INFO(icap, "clock freq io addr is not defined");
+			return 0;
+		}
 
 		if (idx < 2) {
 			reg_wr(icap->icap_clock_freq_counter, 0x1);
@@ -1991,6 +1995,7 @@ static int icap_download_bitstream_axlf(struct platform_device *pdev,
 			err = calibrate_mig(icap);
 		if (err)
 			goto done;
+
 		/* Remember "this" bitstream, so avoid redownload the next time. */
 		icap->icap_bitstream_id = xclbin->m_uniqueId;
 		if (!uuid_is_null(&xclbin->m_header.uuid)) {
@@ -2524,27 +2529,6 @@ done:
 	return err;
 }
 
-
-/*
- * should always get the latest value of IDCODE and PEER_UUID
- */
-static bool get_latest_force(enum data_kind kind)
-{
-	bool ret = false;
-
-	switch (kind) {
-	case IDCODE:
-		ret = true;
-		break;
-	case PEER_UUID:
-		ret = true;
-		break;
-	default:
-		break;
-	}
-	return ret;
-}
-
 static uint64_t icap_get_data_nolock(struct platform_device *pdev,
 	enum data_kind kind)
 {
@@ -2554,7 +2538,7 @@ static uint64_t icap_get_data_nolock(struct platform_device *pdev,
 
 	if (!ICAP_PRIVILEGED(icap)) {
 
-		if (ktime_compare(now, icap->cache_expires) > 0 || get_latest_force(kind))
+		if (ktime_compare(now, icap->cache_expires) > 0)
 			icap_read_from_peer(pdev);
 
 		switch (kind) {

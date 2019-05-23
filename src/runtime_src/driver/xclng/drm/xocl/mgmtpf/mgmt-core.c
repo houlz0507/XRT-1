@@ -644,6 +644,7 @@ static void xclmgmt_subdev_get_data(struct xclmgmt_dev *lro, size_t offset,
 	hdr->ver = XOCL_MSG_SUBDEV_VER;
 	hdr->size = *actual_sz - sizeof(*hdr);
 	hdr->offset = offset;
+	//hdr->checksum = csum_partial(hdr->data, hdr->size, 0);
 	memcpy(hdr->data, (char *)lro->userpf_blob + offset, hdr->size);
 	if (*actual_sz == sizeof(*hdr))
 		hdr->rtncode = XOCL_MSG_SUBDEV_RTN_EMPTY;
@@ -811,6 +812,12 @@ void xclmgmt_mailbox_srv(void *arg, void *data, size_t len,
 		vfree(resp);
 		break;
 	}
+	case MAILBOX_REQ_PROGRAM_SHELL: {
+		/* blob should already been updated */
+		xclmgmt_program_shell(lro);
+		
+		break;
+	}
 	default:
 		mgmt_err(lro, "unknown peer request opcode: %d\n", req->req);
 		break;
@@ -852,10 +859,9 @@ static void xclmgmt_extended_probe(struct xclmgmt_dev *lro)
 			platform_axilite_flush(lro);
 	}
 
-	ret = xocl_subdev_create_all(lro, dev_info->subdev_info,
-		dev_info->subdev_num);
+	ret = xocl_subdev_create_all(lro);
 	if (ret) {
-		xocl_err(&pdev->dev, "failed to register subdevs\n");
+		xocl_err(&pdev->dev, "failed to register subdevs %d", ret);
 		goto fail_all_subdev;
 	}
 	xocl_err(&pdev->dev, "created all sub devices");
@@ -994,14 +1000,6 @@ static int xclmgmt_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto err_cdev;
 	}
 
-	lro->dyn_subdev_store = vzalloc(MAX_DYN_SUBDEV *
-			sizeof(struct xocl_subdev));
-	if (!lro->dyn_subdev_store) {
-		rc = -ENOMEM;
-		xocl_err(&pdev->dev, "Alloc dyn_subdev_store failed");
-		goto err_alloc_subdev_store;
-	}
-
 	xocl_drvinst_set_filedev(lro, lro->user_char_dev.cdev);
 
 	mutex_init(&lro->busy_mutex);
@@ -1023,7 +1021,6 @@ static int xclmgmt_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 
 	return 0;
 
-err_alloc_subdev_store:
 	destroy_sg_char(&lro->user_char_dev);
 
 err_cdev:
@@ -1060,6 +1057,7 @@ static void xclmgmt_remove(struct pci_dev *pdev)
 	mgmt_fini_sysfs(&pdev->dev);
 
 	xocl_subdev_destroy_all(lro);
+	xocl_subdev_fini(lro);
 
 	xclmgmt_teardown_msix(lro);
 	/* remove user character device */
@@ -1074,6 +1072,8 @@ static void xclmgmt_remove(struct pci_dev *pdev)
 
 	if (lro->core.fdt_blob)
 		vfree(lro->core.fdt_blob);
+	if (lro->core.dyn_subdev_store)
+		vfree(lro->core.dyn_subdev_store);
 
 	if (lro->userpf_blob)
 		vfree(lro->userpf_blob);

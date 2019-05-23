@@ -194,52 +194,32 @@ static ssize_t subdev_cmd_store(struct device *dev,
 	struct device_attribute *da, const char *buf, size_t count)
 {
 	struct xclmgmt_dev *lro = dev_get_drvdata(dev);
-	int ret = 0, i, subdev_num = 0;
+	int ret = 0, i;
 	char *name = (char *)buf;
 	char cmd[32] = { 0 }, sdev_name[33] = { 0 };
-	struct xocl_subdev_info *subdev_info;
 
 	sscanf(name, "%32s %32s", cmd, sdev_name);
 
 	device_lock(dev);
 	if (!strcmp(cmd, "create") && !strcmp(sdev_name, "dynamic") ) {
-		subdev_info = vzalloc((lro->dyn_subdev_num +
-			lro->core.priv.subdev_num) * sizeof(*subdev_info));
-		if (!subdev_info) {
-			ret = -ENOMEM;
-			goto failed;
-		}
-
-		for (i = 0; i < lro->core.priv.subdev_num; i++)
-			xocl_subdev_update_info(lro, subdev_info, &subdev_num,
-					&lro->core.priv.subdev_info[i]);
-
-		for (i = 0; i < lro->dyn_subdev_num; i++) {
-			if (lro->dyn_subdev_store[i].pf != XOCL_PCI_FUNC(lro))
-				continue;
-			xocl_subdev_update_info(lro, subdev_info, &subdev_num,
-					&lro->dyn_subdev_store[i].info);
-		}
-
+		xclmgmt_connect_notify(lro, false);
 		xocl_subdev_destroy_all(lro);
-		ret = xocl_subdev_create_all(lro, subdev_info, subdev_num);
-		vfree(subdev_info);
+		ret = xocl_subdev_create_all(lro);
 
 		(void) xocl_peer_listen(lro, xclmgmt_mailbox_srv, (void *)lro);
+		xclmgmt_update_userpf_blob(lro);
+		xclmgmt_connect_notify(lro, true);
 	} else if (!strcmp(cmd, "destroy") &&
 			!strcmp(sdev_name, "dynamic")) {
 		for (i = XOCL_SUBDEV_LEVEL_URP; i > XOCL_SUBDEV_LEVEL_STATIC;
 				i--) {
 			xocl_subdev_destroy_by_level(lro, i);
 		}
-	} else if (!strcmp(cmd, "update-userpf-blob")) {
-		xclmgmt_update_userpf_blob(lro);
 	}else {
 		xocl_err(dev, "Invalid command");
 		ret = -EINVAL;
 	}
 
-failed:
 	if (!ret || ret == -EAGAIN)
 		ret = count;
 	else
@@ -376,11 +356,11 @@ static ssize_t mgmt_blob_input(struct file *filp, struct kobject *kobj,
 
 	if (off + count >= lro->bin_length) {
 		memcpy(lro->bin_buffer + off, buffer, lro->bin_length - off);
-		ret = xocl_fdt_blob_input(lro, lro->bin_buffer, lro->bin_length,
-				lro->dyn_subdev_store, &lro->dyn_subdev_num);
+		ret = xocl_fdt_blob_input(lro, lro->bin_buffer);
 		vfree(lro->bin_buffer);
 		lro->bin_buffer = NULL;
 		lro->bin_length = 0;
+
 	} else
 		memcpy(lro->bin_buffer + off, buffer, count);
 

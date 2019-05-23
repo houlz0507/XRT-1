@@ -45,6 +45,7 @@
 
 #define REBAR_FIRST_CAP		4
 
+#define MAX_DYN_SUBDEV		1024
 static const struct pci_device_id pciidlist[] = {
 	XOCL_USER_XDMA_PCI_IDS,
 	{ 0, }
@@ -91,15 +92,12 @@ void xocl_reset_notify(struct pci_dev *pdev, bool prepare)
 		ret = xocl_subdev_online_by_id(xdev, XOCL_SUBDEV_MAILBOX);
 		if (ret)
 			xocl_err(&pdev->dev, "Online mailbox failed %d", ret);
-		(void) xocl_mailbox_set(xdev, RESET, 0);
 		(void) xocl_peer_listen(xdev, xocl_mailbox_srv, (void *)xdev);
 		(void) xocl_mb_connect(xdev);
 	} else {
-		reset_notify_client_ctx(xdev);
 		ret = xocl_subdev_online_all(xdev);
 		if (ret)
 			xocl_err(&pdev->dev, "Online subdevs failed %d", ret);
-		(void) xocl_mailbox_set(xdev, RESET, 1);
 		xocl_exec_reset(xdev);
 	}
 }
@@ -133,6 +131,80 @@ static void kill_all_clients(struct xocl_dev *xdev)
 
 	if (!list_empty(&xdev->ctx_list))
 		userpf_err(xdev, "failed to kill all clients");
+}
+
+int xocl_program_shell(struct xocl_dev *xdev, bool force)
+{
+	bool skip = false;
+	int ret = 0, mbret = 0;
+	struct mailbox_req mbreq = { MAILBOX_REQ_CHG_SHELL, };
+	size_t resplen = sizeof(ret);
+
+	mutex_lock(&xdev->dev_lock);
+	if (xdev->offline) {
+		skip = true;
+	} else if (!force && !list_is_singular(&xdev->ctx_list)) {
+		/* We should have one context for ourselves. */
+		BUG_ON(list_empty(&xdev->ctx_list));
+		userpf_err(xdev, "device is in use, can't reset");
+		ret = -EBUSY;
+	} else {
+		xdev->offline = true;
+	}
+	mutex_unlock(&xdev->dev_lock);
+	if (ret < 0 || skip)
+		return ret;
+
+	userpf_info(xdev, "program shell...");
+
+	if (force)
+		kill_all_clients(xdev);
+
+	xocl_cleanup_mem(XOCL_DRM(xdev));
+	ret = xocl_subdev_offline_all(xdev);
+	if (!ret) {
+		userpf_err(xdev, "offline sub devices failed %d", ret);
+		goto failed;
+	}
+
+	xocl_subdev_destroy_by_level(xdev, XOCL_SUBDEV_LEVEL_URP);
+	xocl_subdev_destroy_by_level(xdev, XOCL_SUBDEV_LEVEL_PRP);
+
+	xocl_subdev_online_by_id(xdev, XOCL_SUBDEV_MAILBOX);
+	ret = xocl_peer_listen(xdev, xocl_mailbox_srv, (void *)xdev);
+	if (ret)
+		goto failed;
+	xocl_mb_connect(xdev);
+
+	userpf_info(xdev, "request mgmtpf to program prp");
+	mbret = xocl_peer_request(xdev, &mbreq, sizeof(struct mailbox_req),
+		&ret, &resplen, NULL, NULL);
+	if (mbret)
+		ret = mbret;
+
+	ret = xocl_subdev_online_all(xdev);
+	if (ret)
+		goto failed;
+
+	if (!xdev->core.fdt_blob) {
+		userpf_info(xdev, "Empty fdt blob");
+		goto done;
+	}
+
+	ret = xocl_fdt_blob_input(xdev, xdev->core.fdt_blob);
+	if (ret) {
+		userpf_err(xdev, "parse blob failed %d", ret);
+		goto failed;
+	}
+
+done:
+	xocl_exec_reset(xdev);
+	mutex_lock(&xdev->dev_lock);
+	xdev->offline = false;
+	mutex_unlock(&xdev->dev_lock);
+
+failed:
+	return ret;
 }
 
 int xocl_hot_reset(struct xocl_dev *xdev, bool force)
@@ -182,10 +254,21 @@ int xocl_hot_reset(struct xocl_dev *xdev, bool force)
 static void xocl_reset_work(struct work_struct *work)
 {
 	struct xocl_dev *xdev = container_of(to_delayed_work(work),
-			struct xocl_dev, core.reset_work);
+			struct xocl_dev, reset_work);
 
 	xocl_drvinst_offline(xdev, true);
 	(void) xocl_hot_reset(xdev, true);
+	xocl_drvinst_offline(xdev, false);
+}
+
+static void xocl_program_work(struct work_struct *work)
+{
+	struct xocl_dev *xdev = container_of(to_delayed_work(work),
+			struct xocl_dev, program_work);
+
+	xocl_drvinst_offline(xdev, true);
+	/* program shell */
+	(void) xocl_program_shell(xdev, true);
 	xocl_drvinst_offline(xdev, false);
 }
 
@@ -232,7 +315,7 @@ static void xocl_mb_connect(struct xocl_dev *xdev)
 
 	if (!ret) {
 		do {
-			ret = xocl_update_fdt(xdev);
+			ret = xocl_refresh_prp_subdevs(xdev);
 			retry_count --;
 			if (ret == -EAGAIN) {
 				userpf_info(xdev, "retry update fdt");
@@ -284,6 +367,7 @@ static void xocl_mailbox_srv(void *arg, void *data, size_t len,
 	struct xocl_dev *xdev = (struct xocl_dev *)arg;
 	struct mailbox_req *req = (struct mailbox_req *)data;
 	struct mailbox_peer_state *st = NULL;
+	int delay_jiffies = 0;
 
 	if (err != 0)
 		return;
@@ -292,7 +376,9 @@ static void xocl_mailbox_srv(void *arg, void *data, size_t len,
 
 	switch (req->req) {
 	case MAILBOX_REQ_FIREWALL:
-		(void) xocl_hot_reset(xdev, true);
+		delay_jiffies = msecs_to_jiffies(XOCL_RESET_DELAY);
+		queue_delayed_work(xdev->wq, &xdev->reset_work,
+				delay_jiffies);
 		break;
 	case MAILBOX_REQ_MGMT_STATE:
 		st = (struct mailbox_peer_state *)req->data;
@@ -308,6 +394,11 @@ static void xocl_mailbox_srv(void *arg, void *data, size_t len,
 			userpf_err(xdev, "unknown peer state flag (0x%llx)\n",
 				st->state_flags);
 		}
+		break;
+	case MAILBOX_REQ_CHG_SHELL:
+		delay_jiffies = msecs_to_jiffies(XOCL_PROGRAM_SHELL_DELAY);
+		queue_delayed_work(xdev->wq, &xdev->program_work,
+				delay_jiffies);
 		break;
 	default:
 		userpf_err(xdev, "dropped bad request (%d)\n", req->req);
@@ -378,7 +469,41 @@ uint64_t xocl_get_data(struct xocl_dev *xdev, enum data_kind kind)
 	return xocl_read_from_peer(xdev, kind);
 }
 
-int xocl_update_fdt(struct xocl_dev *xdev)
+static int xocl_quiesce(struct xocl_dev *xdev)
+{
+	int ret;
+
+	xocl_drvinst_offline(xdev, true);
+
+	kill_all_clients(xdev);
+	if (XOCL_DRM(xdev))
+		xocl_cleanup_mem(XOCL_DRM(xdev));
+	ret = xocl_subdev_offline_all(xdev);
+	if (ret) {
+		userpf_err(xdev, "offline sub devices failed %d", ret);
+		goto failed;
+	}
+	xocl_subdev_destroy_by_level(xdev, XOCL_SUBDEV_LEVEL_URP);
+	xocl_subdev_destroy_by_level(xdev, XOCL_SUBDEV_LEVEL_PRP);
+
+	ret = xocl_subdev_online_by_id(xdev, XOCL_SUBDEV_MAILBOX);
+	if (ret) {
+		userpf_err(xdev, "online mailbox failed %d", ret);
+		goto failed;
+	}
+	ret = xocl_peer_listen(xdev, xocl_mailbox_srv, (void *)xdev);
+	if (ret) {
+		userpf_err(xdev, "listen mailbox failed %d", ret);
+		goto failed;
+	}
+
+	userpf_info(xdev, "quiesce device successfully");
+
+failed:
+	return ret;
+}
+
+int xocl_refresh_prp_subdevs(struct xocl_dev *xdev)
 {
 	struct mailbox_subdev_peer subdev_peer = {0};
 	size_t data_len = sizeof(struct mailbox_subdev_peer);
@@ -387,7 +512,9 @@ int xocl_update_fdt(struct xocl_dev *xdev)
 	struct xcl_subdev	*resp = NULL;
 	size_t resp_len = sizeof(*resp) + XOCL_MSG_SUBDEV_DATA_LEN;
         char *blob = NULL, *tmp;
-	uint64_t sync_id;
+	uint64_t checksum;
+	const xuid_t *cur_uuid, *new_uuid;
+	bool skip_refresh = false;
 	size_t offset = 0;
 	int ret = 0;
 
@@ -431,16 +558,15 @@ int xocl_update_fdt(struct xocl_dev *xdev)
 			goto failed;
 
 		if (!offset)
-			sync_id = resp->sync_id;
-		else if (sync_id != resp->sync_id) {
-			ret = -EAGAIN;
-			goto failed;
-		} else if (offset != resp->offset) {
+			checksum = resp->checksum;
+
+		if (offset != resp->offset) {
 			ret = -EINVAL;
 			goto failed;
-		} else if (resp->rtncode != XOCL_MSG_SUBDEV_RTN_PARTIAL &&
-			resp->rtncode != XOCL_MSG_SUBDEV_RTN_COMPLETE) {
-			ret = -EINVAL;
+		} else if (resp->rtncode == XOCL_MSG_SUBDEV_RTN_EMPTY) {
+			if (xdev->core.fdt_blob)
+				vfree(xdev->core.fdt_blob);
+			xdev->core.fdt_blob = NULL;
 			goto failed;
 		}
 
@@ -448,12 +574,52 @@ int xocl_update_fdt(struct xocl_dev *xdev)
 		offset += resp->size;
 	} while (resp->rtncode == XOCL_MSG_SUBDEV_RTN_PARTIAL);
 
-	if (xdev->core.fdt_blob)
+	if (xdev->core.fdt_blob) {
+		cur_uuid = xocl_fdt_get_prp_int_uuid(xdev,
+				xdev->core.fdt_blob);
+		if (cur_uuid)
+			userpf_info(xdev, "current uuid:%x, %x, %x, %x",
+				XOCL_UUID_FMT(cur_uuid));
+		new_uuid = xocl_fdt_get_prp_int_uuid(xdev, blob);
+		if (new_uuid)
+			userpf_info(xdev, "new uuid:%x, %x, %x, %x",
+				XOCL_UUID_FMT(new_uuid));
+		if ((cur_uuid && new_uuid && uuid_equal(cur_uuid,
+			new_uuid)) || !new_uuid) {
+			userpf_info(xdev, "same prp int uuid, skip refresh");
+			skip_refresh = true;
+		}
 		vfree(xdev->core.fdt_blob);
+	}
+
 	xdev->core.fdt_blob = blob;
+	blob = NULL;
 
-	return 0;
+	if (!skip_refresh) {
+		ret = xocl_quiesce(xdev);
+		if (ret)
+			goto failed;
 
+		if (xdev->core.fdt_blob) {
+			ret = xocl_fdt_blob_input(xdev, xdev->core.fdt_blob);
+			if (ret) {
+				userpf_info(xdev, "parse blob failed %d", ret);
+				goto failed;
+			}
+		}
+		xocl_subdev_offline_by_id(xdev, XOCL_SUBDEV_MAILBOX);
+		ret = xocl_subdev_online_all(xdev);
+		if (ret) {
+			userpf_info(xdev, "Online subdevs failed %d", ret);
+			goto failed;
+		}
+		ret = xocl_subdev_create_all(xdev);
+		if (ret) {
+			userpf_info(xdev, "create subdev failed %d", ret);
+			goto failed;
+		}
+		(void) xocl_peer_listen(xdev, xocl_mailbox_srv, (void *)xdev);
+	}
 failed:
 	if (blob)
 		vfree(blob);
@@ -786,6 +952,11 @@ void xocl_userpf_remove(struct pci_dev *pdev)
 		return;
 	}
 
+	if (xdev->wq) {
+		flush_workqueue(xdev->wq);
+		destroy_workqueue(xdev->wq);
+	}
+
 	xocl_p2p_mem_release(xdev, false);
 	xocl_subdev_destroy_all(xdev);
 
@@ -796,9 +967,13 @@ void xocl_userpf_remove(struct pci_dev *pdev)
 
 	pci_disable_device(pdev);
 
+pr_info("UNMAP  BARS\n");
 	unmap_bar(xdev);
+pr_info("UNMAP  BARS DONE\n");
 
 	xocl_subdev_fini(xdev);
+	if (xdev->core.dyn_subdev_store);
+		vfree(xdev->core.dyn_subdev_store);
 	mutex_destroy(&xdev->core.lock);
 	mutex_destroy(&xdev->dev_lock);
 
@@ -812,6 +987,7 @@ int xocl_userpf_probe(struct pci_dev *pdev,
 {
 	struct xocl_dev			*xdev;
 	struct xocl_board_private	*dev_info;
+	char				wq_name[15];
 	int				ret;
 
 	xdev = xocl_drvinst_alloc(&pdev->dev, sizeof(*xdev));
@@ -829,10 +1005,10 @@ int xocl_userpf_probe(struct pci_dev *pdev,
 	xdev->core.pdev = pdev;
 	xdev->core.dev_minor = XOCL_INVALID_MINOR;
 	rwlock_init(&xdev->core.rwlock);
-	INIT_DELAYED_WORK(&xdev->core.reset_work, xocl_reset_work);
+	INIT_DELAYED_WORK(&xdev->reset_work, xocl_reset_work);
+	INIT_DELAYED_WORK(&xdev->program_work, xocl_program_work);
 	xocl_fill_dsa_priv(xdev, dev_info);
 	mutex_init(&xdev->dev_lock);
-	xdev->needs_reset = false;
 	atomic64_set(&xdev->total_execs, 0);
 	atomic_set(&xdev->outstanding_execs, 0);
 	INIT_LIST_HEAD(&xdev->ctx_list);
@@ -859,8 +1035,7 @@ int xocl_userpf_probe(struct pci_dev *pdev,
 		goto failed;
 	}
 
-	ret = xocl_subdev_create_all(xdev, dev_info->subdev_info,
-			dev_info->subdev_num);
+	ret = xocl_subdev_create_all(xdev);
 	if (ret) {
 		xocl_err(&pdev->dev, "failed to register subdevs");
 		goto failed;
@@ -869,6 +1044,14 @@ int xocl_userpf_probe(struct pci_dev *pdev,
 	ret = xocl_p2p_mem_reserve(xdev);
 	if (ret) {
 		xocl_err(&pdev->dev, "failed to reserve p2p memory region");
+		goto failed;
+	}
+
+	snprintf(wq_name, sizeof(wq_name), "xocl_wq%d", xdev->core.dev_minor);
+	xdev->wq = create_singlethread_workqueue(wq_name);
+	if (!xdev->wq) {
+		xocl_err(&pdev->dev, "failed to create work queue");
+		ret = -EFAULT;
 		goto failed;
 	}
 

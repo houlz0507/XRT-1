@@ -234,7 +234,7 @@ static bool verify_timestamp(struct platform_device *pdev, u64 timestamp)
 	return (rom->header.TimeSinceEpoch == timestamp);
 }
 
-static void get_raw_header(struct platform_device *pdev, void *header)
+static int get_raw_header(struct platform_device *pdev, void *header)
 {
 	struct feature_rom *rom;
 
@@ -242,6 +242,8 @@ static void get_raw_header(struct platform_device *pdev, void *header)
 	BUG_ON(!rom);
 
 	memcpy(header, &rom->header, sizeof (rom->header));
+
+	return 0;
 }
 
 static struct xocl_rom_funcs rom_ops = {
@@ -262,13 +264,14 @@ static struct xocl_rom_funcs rom_ops = {
 static int get_header_from_peer(struct feature_rom *rom)
 {
 	//TODO, Hardcoded for now.
-	struct FeatureRomHeader *header = &rom->header;
+	struct FeatureRomHeader *header;
+	
+	header = XOCL_GET_SUBDEV_PRIV(&rom->pdev->dev);
+pr_info("HEADER %p\n", header);
+	if (!header)
+		return -ENODEV;
 
-	*(u32 *)header->EntryPointString = MAGIC_NUM;
-	strcpy(header->VBNVName, "xilinx_u200_dynamic_201910_1");
-	header->DDRChannelCount = 4;
-	header->DDRChannelSize = 16;
-	header->FeatureBitMap = UNIFIED_PLATFORM;
+	memcpy(&rom->header, header, sizeof(*header));
 
 	return 0;
 }

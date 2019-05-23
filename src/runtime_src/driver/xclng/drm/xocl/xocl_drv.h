@@ -59,6 +59,9 @@ static inline bool uuid_is_null(const xuid_t *uuid)
 }
 #endif
 
+#define XOCL_UUID_FMT(uuid)	*((u32 *)uuid), *((u32 *)uuid + 1),	\
+	*((u32 *)uuid + 2), *((u32 *)uuid + 3)
+
 static inline void xocl_memcpy_fromio(void *buf, void *iomem, u32 size)
 {
 	int i;
@@ -246,6 +249,8 @@ struct xocl_dev_core {
 	struct pci_dev		*pdev;
 	int			dev_minor;
 	struct xocl_subdev	*subdevs[XOCL_SUBDEV_NUM];
+	struct xocl_subdev	*dyn_subdev_store;
+	int			dyn_subdev_num;
 	struct xocl_pci_funcs	*pci_ops;
 
 	struct mutex 		lock;
@@ -263,10 +268,8 @@ struct xocl_dev_core {
 	struct xocl_health_thread_arg thread_arg;
 
 	struct xocl_drm		*drm;
-	struct delayed_work	reset_work;
 
 	char			*fdt_blob;
-	u32			fdt_sync_count;
 	struct xocl_board_private priv;
 
 	rwlock_t		rwlock;
@@ -318,42 +321,42 @@ struct xocl_rom_funcs {
 	bool (*is_aws)(struct platform_device *pdev);
 	bool (*verify_timestamp)(struct platform_device *pdev, u64 timestamp);
 	u64 (*get_timestamp)(struct platform_device *pdev);
-	void (*get_raw_header)(struct platform_device *pdev, void *header);
+	int (*get_raw_header)(struct platform_device *pdev, void *header);
 	bool (*runtime_clk_scale_on)(struct platform_device *pdev);
 };
 #define ROM_DEV(xdev)	\
 	SUBDEV(xdev, XOCL_SUBDEV_FEATURE_ROM).pldev
 #define	ROM_OPS(xdev)	\
 	((struct xocl_rom_funcs *)SUBDEV(xdev, XOCL_SUBDEV_FEATURE_ROM).ops)
-#define ROM_CB(xdev)	\
-	(ROM_DEV(xdev) && ROM_OPS(xdev))
+#define ROM_CB(xdev, cb)	\
+	(ROM_DEV(xdev) && ROM_OPS(xdev) && ROM_OPS(xdev)->cb)
 #define	xocl_is_unified(xdev)		\
-	(ROM_CB(xdev) ? ROM_OPS(xdev)->is_unified(ROM_DEV(xdev)) : true)
+	(ROM_CB(xdev, is_unified) ? ROM_OPS(xdev)->is_unified(ROM_DEV(xdev)) : true)
 #define	xocl_mb_mgmt_on(xdev)		\
-	(ROM_CB(xdev) ? ROM_OPS(xdev)->mb_mgmt_on(ROM_DEV(xdev)) : false)
+	(ROM_CB(xdev, mb_mgmt_on) ? ROM_OPS(xdev)->mb_mgmt_on(ROM_DEV(xdev)) : false)
 #define	xocl_mb_sched_on(xdev)		\
-	(ROM_CB(xdev) ? ROM_OPS(xdev)->mb_sched_on(ROM_DEV(xdev)) : false)
+	(ROM_CB(xdev, mb_sched_on) ? ROM_OPS(xdev)->mb_sched_on(ROM_DEV(xdev)) : false)
 #define	xocl_cdma_addr(xdev)		\
-	(ROM_CB(xdev) ? ROM_OPS(xdev)->cdma_addr(ROM_DEV(xdev)) : 0)
+	(ROM_CB(xdev, cdma_addr) ? ROM_OPS(xdev)->cdma_addr(ROM_DEV(xdev)) : 0)
 #define xocl_clk_scale_on(xdev)		\
-	(ROM_CB(xdev) ? ROM_OPS(xdev)->runtime_clk_scale_on(ROM_DEV(xdev)) : false)
+	(ROM_CB(xdev, runtime_clk_scale_on) ? ROM_OPS(xdev)->runtime_clk_scale_on(ROM_DEV(xdev)) : false)
 #define	xocl_get_ddr_channel_count(xdev) \
-	(ROM_CB(xdev) ? ROM_OPS(xdev)->get_ddr_channel_count(ROM_DEV(xdev)) :\
+	(ROM_CB(xdev, get_ddr_channel_count) ? ROM_OPS(xdev)->get_ddr_channel_count(ROM_DEV(xdev)) :\
 	0)
 #define	xocl_get_ddr_channel_size(xdev) \
-	(ROM_CB(xdev) ? ROM_OPS(xdev)->get_ddr_channel_size(ROM_DEV(xdev)) : 0)
+	(ROM_CB(xdev, get_ddr_channel_size) ? ROM_OPS(xdev)->get_ddr_channel_size(ROM_DEV(xdev)) : 0)
 #define	xocl_is_are(xdev)		\
-	(ROM_CB(xdev) ? ROM_OPS(xdev)->is_are(ROM_DEV(xdev)) : false)
+	(ROM_CB(xdev, is_are) ? ROM_OPS(xdev)->is_are(ROM_DEV(xdev)) : false)
 #define	xocl_is_aws(xdev)		\
-	(ROM_CB(xdev) ? ROM_OPS(xdev)->is_aws(ROM_DEV(xdev)) : false)
+	(ROM_CB(xdev, is_aws) ? ROM_OPS(xdev)->is_aws(ROM_DEV(xdev)) : false)
 #define	xocl_verify_timestamp(xdev, ts)	\
-	(ROM_CB(xdev) ? ROM_OPS(xdev)->verify_timestamp(ROM_DEV(xdev), ts) : \
+	(ROM_CB(xdev, verify_timestamp) ? ROM_OPS(xdev)->verify_timestamp(ROM_DEV(xdev), ts) : \
 	false)
 #define	xocl_get_timestamp(xdev) \
-	(ROM_CB(xdev) ? ROM_OPS(xdev)->get_timestamp(ROM_DEV(xdev)) : 0)
+	(ROM_CB(xdev, get_timestamp) ? ROM_OPS(xdev)->get_timestamp(ROM_DEV(xdev)) : 0)
 #define	xocl_get_raw_header(xdev, header) \
-	(ROM_CB(xdev) ? ROM_OPS(xdev)->get_raw_header(ROM_DEV(xdev), header) :\
-	NULL)
+	(ROM_CB(xdev, get_raw_header) ? ROM_OPS(xdev)->get_raw_header(ROM_DEV(xdev), header) :\
+	-ENODEV)
 
 /* dma callbacks */
 struct xocl_dma_funcs {
@@ -376,31 +379,31 @@ struct xocl_dma_funcs {
 	SUBDEV(xdev, XOCL_SUBDEV_DMA).pldev
 #define	DMA_OPS(xdev)	\
 	((struct xocl_dma_funcs *)SUBDEV(xdev, XOCL_SUBDEV_DMA).ops)
-#define DMA_CB(xdev)	\
-	(DMA_DEV(xdev) && DMA_OPS(xdev))
+#define DMA_CB(xdev, cb)	\
+	(DMA_DEV(xdev) && DMA_OPS(xdev) && DMA_OPS(xdev)->cb)
 #define	xocl_migrate_bo(xdev, sgt, to_dev, paddr, chan, len)	\
-	(DMA_CB(xdev) ? DMA_OPS(xdev)->migrate_bo(DMA_DEV(xdev), \
+	(DMA_CB(xdev, migrate_bo) ? DMA_OPS(xdev)->migrate_bo(DMA_DEV(xdev), \
 	sgt, to_dev, paddr, chan, len) : 0)
 #define	xocl_acquire_channel(xdev, dir)		\
-	(DMA_CB(xdev) ? DMA_OPS(xdev)->ac_chan(DMA_DEV(xdev), dir) : \
+	(DMA_CB(xdev, ac_chan) ? DMA_OPS(xdev)->ac_chan(DMA_DEV(xdev), dir) : \
 	-ENODEV)
 #define	xocl_release_channel(xdev, dir, chan)	\
-	(DMA_CB(xdev) ? DMA_OPS(xdev)->rel_chan(DMA_DEV(xdev), dir, \
+	(DMA_CB(xdev, rel_chan) ? DMA_OPS(xdev)->rel_chan(DMA_DEV(xdev), dir, \
 	chan) : NULL)
 #define	xocl_get_chan_count(xdev)		\
-	(DMA_CB(xdev) ? DMA_OPS(xdev)->get_chan_count(DMA_DEV(xdev)) \
+	(DMA_CB(xdev, get_chan_count) ? DMA_OPS(xdev)->get_chan_count(DMA_DEV(xdev)) \
 	: 0)
 #define	xocl_get_chan_stat(xdev, chan, write)		\
-	(DMA_CB(xdev) ? DMA_OPS(xdev)->get_chan_stat(DMA_DEV(xdev), \
+	(DMA_CB(xdev, get_chan_stat) ? DMA_OPS(xdev)->get_chan_stat(DMA_DEV(xdev), \
 	chan, write) : 0)
 #define xocl_dma_intr_config(xdev, irq, en)			\
-	(DMA_CB(xdev) ? DMA_OPS(xdev)->user_intr_config(DMA_DEV(xdev), \
+	(DMA_CB(xdev, user_intr_config) ? DMA_OPS(xdev)->user_intr_config(DMA_DEV(xdev), \
 	irq, en) : -ENODEV)
 #define xocl_dma_intr_register(xdev, irq, handler, arg, event_fd)	\
-	(DMA_CB(xdev) ? DMA_OPS(xdev)->user_intr_register(DMA_DEV(xdev), \
+	(DMA_CB(xdev, user_intr_register) ? DMA_OPS(xdev)->user_intr_register(DMA_DEV(xdev), \
 	irq, handler, arg, event_fd) : -ENODEV)
 #define xocl_dma_intr_unreg(xdev, irq)				\
-	(DMA_CB(xdev) ? DMA_OPS(xdev)->user_intr_unreg(DMA_DEV(xdev),	\
+	(DMA_CB(xdev, user_intr_unreg) ? DMA_OPS(xdev)->user_intr_unreg(DMA_DEV(xdev),	\
 	irq) : -ENODEV)
 
 /* mb_scheduler callbacks */
@@ -420,30 +423,30 @@ struct xocl_mb_scheduler_funcs {
 #define	MB_SCHEDULER_OPS(xdev)	\
 	((struct xocl_mb_scheduler_funcs *)SUBDEV(xdev,		\
 		XOCL_SUBDEV_MB_SCHEDULER).ops)
-#define SCHE_CB(xdev)	\
+#define SCHE_CB(xdev, cb)	\
 	(MB_SCHEDULER_DEV(xdev) && MB_SCHEDULER_OPS(xdev))
 #define	xocl_exec_create_client(xdev, priv)		\
-	(SCHE_CB(xdev) ?			\
+	(SCHE_CB(xdev, create_client) ?			\
 	MB_SCHEDULER_OPS(xdev)->create_client(MB_SCHEDULER_DEV(xdev), priv) : \
 	-ENODEV)
 #define	xocl_exec_destroy_client(xdev, priv)		\
-	(SCHE_CB(xdev) ?			\
+	(SCHE_CB(xdev, destroy_client) ?			\
 	MB_SCHEDULER_OPS(xdev)->destroy_client(MB_SCHEDULER_DEV(xdev), priv) : \
 	NULL)
 #define	xocl_exec_poll_client(xdev, filp, wait, priv)		\
-	(SCHE_CB(xdev) ?				\
+	(SCHE_CB(xdev, poll_client) ?				\
 	MB_SCHEDULER_OPS(xdev)->poll_client(MB_SCHEDULER_DEV(xdev), filp, \
 	wait, priv) : 0)
 #define	xocl_exec_client_ioctl(xdev, op, data, drm_filp)		\
-	(SCHE_CB(xdev) ?				\
+	(SCHE_CB(xdev, client_ioctl) ?				\
 	MB_SCHEDULER_OPS(xdev)->client_ioctl(MB_SCHEDULER_DEV(xdev),	\
 	op, data, drm_filp) : -ENODEV)
 #define	xocl_exec_stop(xdev)		\
-	(SCHE_CB(xdev) ?				\
+	(SCHE_CB(xdev, stop) ?				\
 	 MB_SCHEDULER_OPS(xdev)->stop(MB_SCHEDULER_DEV(xdev)) : \
 	-ENODEV)
 #define	xocl_exec_reset(xdev)		\
-	(SCHE_CB(xdev) ?				\
+	(SCHE_CB(xdev, reset) ?				\
 	 MB_SCHEDULER_OPS(xdev)->reset(MB_SCHEDULER_DEV(xdev)) : \
 	-ENODEV)
 
@@ -489,10 +492,10 @@ struct xocl_sysmon_funcs {
 #define	SYSMON_OPS(xdev)	\
 	((struct xocl_sysmon_funcs *)SUBDEV(xdev,	\
 		XOCL_SUBDEV_SYSMON).ops)
-#define SYSMON_CB(xdev)	\
-	(SYSMON_DEV(xdev) && SYSMON_OPS(xdev))
+#define SYSMON_CB(xdev, cb)	\
+	(SYSMON_DEV(xdev) && SYSMON_OPS(xdev) && SYSMON_OPS(xdev)->cb)
 #define	xocl_sysmon_get_prop(xdev, prop, val)		\
-	(SYSMON_CB(xdev) ? SYSMON_OPS(xdev)->get_prop(SYSMON_DEV(xdev), \
+	(SYSMON_CB(xdev, get_prop) ? SYSMON_OPS(xdev)->get_prop(SYSMON_DEV(xdev), \
 	prop, val) : -ENODEV)
 
 /* firewall callbacks */
@@ -515,15 +518,15 @@ struct xocl_firewall_funcs {
 #define	AF_OPS(xdev)	\
 	((struct xocl_firewall_funcs *)SUBDEV(xdev,	\
 	XOCL_SUBDEV_AF).ops)
-#define AF_CB(xdev)	\
-	(AF_DEV(xdev) && AF_OPS(xdev))
+#define AF_CB(xdev, cb)	\
+	(AF_DEV(xdev) && AF_OPS(xdev) && AF_OPS(xdev)->cb)
 #define	xocl_af_get_prop(xdev, prop, val)		\
-	(AF_CB(xdev) ? AF_OPS(xdev)->get_prop(AF_DEV(xdev), prop, val) : \
+	(AF_CB(xdev, get_prop) ? AF_OPS(xdev)->get_prop(AF_DEV(xdev), prop, val) : \
 	-ENODEV)
 #define	xocl_af_check(xdev, level)			\
-	(AF_CB(xdev) ? AF_OPS(xdev)->check_firewall(AF_DEV(xdev), level) : 0)
+	(AF_CB(xdev, check_firewall) ? AF_OPS(xdev)->check_firewall(AF_DEV(xdev), level) : 0)
 #define	xocl_af_clear(xdev)				\
-	(AF_CB(xdev) ? AF_OPS(xdev)->clear_firewall(AF_DEV(xdev)) : -ENODEV)
+	(AF_CB(xdev, clear_firewall) ? AF_OPS(xdev)->clear_firewall(AF_DEV(xdev)) : -ENODEV)
 
 /* microblaze callbacks */
 struct xocl_mb_funcs {
@@ -542,23 +545,23 @@ struct xocl_mb_funcs {
 #define	MB_OPS(xdev)		\
 	((struct xocl_mb_funcs *)SUBDEV(xdev,	\
 	XOCL_SUBDEV_MB).ops)
-#define MB_CB(xdev)	\
-	(MB_DEV(xdev) && MB_OPS(xdev))
+#define MB_CB(xdev, cb)	\
+	(MB_DEV(xdev) && MB_OPS(xdev) && MB_OPS(xdev)->cb)
 #define	xocl_mb_reset(xdev)			\
-	(MB_CB(xdev) ? MB_OPS(xdev)->reset(MB_DEV(xdev)) : NULL) \
+	(MB_CB(xdev, reset) ? MB_OPS(xdev)->reset(MB_DEV(xdev)) : NULL) \
 
 #define	xocl_mb_stop(xdev)			\
-	(MB_CB(xdev) ? MB_OPS(xdev)->stop(MB_DEV(xdev)) : -ENODEV)
+	(MB_CB(xdev, stop) ? MB_OPS(xdev)->stop(MB_DEV(xdev)) : -ENODEV)
 
 #define xocl_mb_load_mgmt_image(xdev, buf, len)		\
-	(MB_CB(xdev) ? MB_OPS(xdev)->load_mgmt_image(MB_DEV(xdev), buf, len) :\
+	(MB_CB(xdev, load_mgmt_image) ? MB_OPS(xdev)->load_mgmt_image(MB_DEV(xdev), buf, len) :\
 	-ENODEV)
 #define xocl_mb_load_sche_image(xdev, buf, len)		\
-	(MB_CB(xdev) ? MB_OPS(xdev)->load_sche_image(MB_DEV(xdev), buf, len) :\
+	(MB_CB(xdev, load_sche_image) ? MB_OPS(xdev)->load_sche_image(MB_DEV(xdev), buf, len) :\
 	-ENODEV)
 
 #define xocl_xmc_get_data(xdev, buf)			\
-	(MB_CB(xdev) ? MB_OPS(xdev)->get_data(MB_DEV(xdev), buf) : -ENODEV)
+	(MB_CB(xdev, get_data) ? MB_OPS(xdev)->get_data(MB_DEV(xdev), buf) : -ENODEV)
 
 struct xocl_dna_funcs {
 	struct xocl_subdev_funcs common_funcs;
@@ -572,14 +575,14 @@ struct xocl_dna_funcs {
 #define	DNA_OPS(xdev)		\
 	((struct xocl_dna_funcs *)SUBDEV(xdev,	\
 	XOCL_SUBDEV_DNA).ops)
-#define DNA_CB(xdev)	\
-	(DNA_DEV(xdev) && DNA_OPS(xdev))
+#define DNA_CB(xdev, cb)	\
+	(DNA_DEV(xdev) && DNA_OPS(xdev) && DNA_OPS(xdev)->cb)
 #define	xocl_dna_status(xdev)			\
-	(DNA_CB(xdev) ? DNA_OPS(xdev)->status(DNA_DEV(xdev)) : 0)
+	(DNA_CB(xdev, status) ? DNA_OPS(xdev)->status(DNA_DEV(xdev)) : 0)
 #define	xocl_dna_capability(xdev)			\
-	(DNA_CB(xdev) ? DNA_OPS(xdev)->capability(DNA_DEV(xdev)) : 2)
+	(DNA_CB(xdev, capability) ? DNA_OPS(xdev)->capability(DNA_DEV(xdev)) : 2)
 #define xocl_dna_write_cert(xdev, data, len)  \
-	(DNA_CB(xdev) ? DNA_OPS(xdev)->write_cert(DNA_DEV(xdev), data, len) : 0)
+	(DNA_CB(xdev, write_cert) ? DNA_OPS(xdev)->write_cert(DNA_DEV(xdev), data, len) : 0)
 
 /**
  *	data_kind
@@ -634,7 +637,6 @@ enum data_kind {
 };
 
 enum mb_kind {
-	RESET,
 	CHAN_STATE,
 	CHAN_SWITCH,
 	COMM_ID,
@@ -659,24 +661,25 @@ struct xocl_mailbox_funcs {
 #define	MAILBOX_DEV(xdev)	SUBDEV(xdev, XOCL_SUBDEV_MAILBOX).pldev
 #define	MAILBOX_OPS(xdev)	\
 	((struct xocl_mailbox_funcs *)SUBDEV(xdev, XOCL_SUBDEV_MAILBOX).ops)
-#define MAILBOX_READY(xdev)	(MAILBOX_DEV(xdev) && MAILBOX_OPS(xdev))
+#define MAILBOX_READY(xdev, cb)	\
+	(MAILBOX_DEV(xdev) && MAILBOX_OPS(xdev) && MAILBOX_OPS(xdev)->cb)
 #define	xocl_peer_request(xdev, req, reqlen, resp, resplen, cb, cbarg)		\
-	(MAILBOX_READY(xdev) ? MAILBOX_OPS(xdev)->request(MAILBOX_DEV(xdev), \
+	(MAILBOX_READY(xdev, request) ? MAILBOX_OPS(xdev)->request(MAILBOX_DEV(xdev), \
 	req, reqlen, resp, resplen, cb, cbarg) : -ENODEV)
 #define	xocl_peer_response(xdev, req, reqid, buf, len)			\
-	(MAILBOX_READY(xdev) ? MAILBOX_OPS(xdev)->post_response(	\
+	(MAILBOX_READY(xdev, post_response) ? MAILBOX_OPS(xdev)->post_response(	\
 	MAILBOX_DEV(xdev), req, reqid, buf, len) : -ENODEV)
 #define	xocl_peer_notify(xdev, req, reqlen)				\
-	(MAILBOX_READY(xdev) ? MAILBOX_OPS(xdev)->post_notify(		\
+	(MAILBOX_READY(xdev, post_notify) ? MAILBOX_OPS(xdev)->post_notify(		\
 	MAILBOX_DEV(xdev), req, reqlen) : -ENODEV)
 #define	xocl_peer_listen(xdev, cb, cbarg)				\
-	(MAILBOX_READY(xdev) ? MAILBOX_OPS(xdev)->listen(MAILBOX_DEV(xdev), \
+	(MAILBOX_READY(xdev, listen) ? MAILBOX_OPS(xdev)->listen(MAILBOX_DEV(xdev), \
 	cb, cbarg) : -ENODEV)
 #define	xocl_mailbox_set(xdev, kind, data)				\
-	(MAILBOX_READY(xdev) ? MAILBOX_OPS(xdev)->set(MAILBOX_DEV(xdev), \
+	(MAILBOX_READY(xdev, set) ? MAILBOX_OPS(xdev)->set(MAILBOX_DEV(xdev), \
 	kind, data) : -ENODEV)
 #define	xocl_mailbox_get(xdev, kind, data)				\
-	(MAILBOX_READY(xdev) ? MAILBOX_OPS(xdev)->get(MAILBOX_DEV(xdev), \
+	(MAILBOX_READY(xdev, get) ? MAILBOX_OPS(xdev)->get(MAILBOX_DEV(xdev), \
 	kind, data) : -ENODEV)
 
 struct xocl_icap_funcs {
@@ -701,46 +704,46 @@ struct xocl_icap_funcs {
 #define	ICAP_DEV(xdev)	SUBDEV(xdev, XOCL_SUBDEV_ICAP).pldev
 #define	ICAP_OPS(xdev)							\
 	((struct xocl_icap_funcs *)SUBDEV(xdev, XOCL_SUBDEV_ICAP).ops)
-#define ICAP_CB(xdev)		\
-	(ICAP_DEV(xdev) && ICAP_OPS(xdev))
+#define ICAP_CB(xdev, cb)		\
+	(ICAP_DEV(xdev) && ICAP_OPS(xdev) && ICAP_OPS(xdev)->cb)
 #define	xocl_icap_reset_axi_gate(xdev)					\
-	(ICAP_CB(xdev) ?						\
+	(ICAP_CB(xdev, reset_axi_gate) ?						\
 	ICAP_OPS(xdev)->reset_axi_gate(ICAP_DEV(xdev)) :		\
 	 NULL)
 #define	xocl_icap_reset_bitstream(xdev)					\
-	(ICAP_CB(xdev) ?						\
+	(ICAP_CB(xdev, reset_bitstream) ?						\
 	ICAP_OPS(xdev)->reset_bitstream(ICAP_DEV(xdev)) :		\
 	 -ENODEV)
 #define	xocl_icap_download_axlf(xdev, xclbin)				\
-	(ICAP_CB(xdev) ?						\
+	(ICAP_CB(xdev, download_bitstream_axlf) ?						\
 	ICAP_OPS(xdev)->download_bitstream_axlf(ICAP_DEV(xdev), xclbin) : \
 	-ENODEV)
 #define	xocl_icap_download_boot_firmware(xdev)				\
-	(ICAP_CB(xdev) ?						\
+	(ICAP_CB(xdev, download_boot_firmware) ?						\
 	ICAP_OPS(xdev)->download_boot_firmware(ICAP_DEV(xdev)) :	\
 	 -ENODEV)
 #define	xocl_icap_ocl_get_freq(xdev, region, freqs, num)		\
-	(ICAP_CB(xdev) ?						\
+	(ICAP_CB(xdev, ocl_get_freq) ?						\
 	ICAP_OPS(xdev)->ocl_get_freq(ICAP_DEV(xdev), region, freqs, num) : \
 	 -ENODEV)
 #define	xocl_icap_ocl_update_clock_freq_topology(xdev, freqs)		\
-	(ICAP_CB(xdev) ?						\
+	(ICAP_CB(xdev, ocl_update_clock_freq_topology) ?						\
 	ICAP_OPS(xdev)->ocl_update_clock_freq_topology(ICAP_DEV(xdev), freqs) : \
 	 -ENODEV)
 #define	xocl_icap_ocl_set_freq(xdev, region, freqs, num)		\
-	(ICAP_CB(xdev) ?						\
+	(ICAP_CB(xdev, ocl_set_freq) ?						\
 	ICAP_OPS(xdev)->ocl_set_freq(ICAP_DEV(xdev), region, freqs, num) : \
 	 -ENODEV)
 #define	xocl_icap_lock_bitstream(xdev, uuid, pid)			\
-	(ICAP_CB(xdev) ?						\
+	(ICAP_CB(xdev, ocl_lock_bitstream) ?						\
 	ICAP_OPS(xdev)->ocl_lock_bitstream(ICAP_DEV(xdev), uuid, pid) :	\
 	 -ENODEV)
 #define	xocl_icap_unlock_bitstream(xdev, uuid, pid)			\
-	(ICAP_CB(xdev) ?						\
+	(ICAP_CB(xdev, ocl_unlock_bitstream) ?						\
 	ICAP_OPS(xdev)->ocl_unlock_bitstream(ICAP_DEV(xdev), uuid, pid) : \
 	 -ENODEV)
 #define	xocl_icap_get_data(xdev, kind)				\
-	(ICAP_CB(xdev) ?						\
+	(ICAP_CB(xdev, get_data) ?						\
 	ICAP_OPS(xdev)->get_data(ICAP_DEV(xdev), kind) : \
 	0)
 
@@ -764,10 +767,10 @@ void xocl_subdev_fini(xdev_handle_t xdev_hdl);
 int xocl_subdev_create(xdev_handle_t xdev_hdl,
 	struct xocl_subdev_info *sdev_info);
 int xocl_subdev_create_by_id(xdev_handle_t xdev_hdl, int id);
-int xocl_subdev_create_all(xdev_handle_t xdev_hdl,
-	struct xocl_subdev_info *sdev_info, u32 subdev_num);
+int xocl_subdev_create_all(xdev_handle_t xdev_hdl);
 void xocl_subdev_destroy_all(xdev_handle_t xdev_hdl);
 int xocl_subdev_offline_all(xdev_handle_t xdev_hdl);
+int xocl_subdev_offline_by_id(xdev_handle_t xdev_hdl, u32 id);
 int xocl_subdev_online_all(xdev_handle_t xdev_hdl);
 int xocl_subdev_online_by_id(xdev_handle_t xdev_hdl, u32 id);
 void xocl_subdev_destroy_by_id(xdev_handle_t xdev_hdl, u32 id);
@@ -823,12 +826,15 @@ int health_thread_start(xdev_handle_t xdev);
 int health_thread_stop(xdev_handle_t xdev);
 
 /* subdev blob functions */
-int xocl_fdt_blob_input(xdev_handle_t xdev_hdl, char *blob, size_t len,
-		struct xocl_subdev *subdevs, int *subdev_num);
+int xocl_fdt_blob_input(xdev_handle_t xdev_hdl, char *blob);
 int xocl_fdt_remove_subdevs(xdev_handle_t xdev_hdl, struct list_head *devlist);
 int xocl_fdt_unlink_node(xdev_handle_t xdev_hdl, void *node);
 int xocl_fdt_overlay(void *fdt, int target, void *fdto, int node, int pf);
+int xocl_fdt_build_priv_data(xdev_handle_t xdev_hdl, struct xocl_subdev *subdev,
+		void **priv_data,  size_t *data_len);
 int xocl_fdt_get_userpf(xdev_handle_t xdev_hdl, void *blob);
+const xuid_t *xocl_fdt_get_prp_int_uuid(xdev_handle_t xdev_hdl, void *blob);
+int xocl_fdt_add_vrom(xdev_handle_t xdev_hdl, void *blob, void *rom);
 
 /* init functions */
 int __init xocl_init_userpf(void);

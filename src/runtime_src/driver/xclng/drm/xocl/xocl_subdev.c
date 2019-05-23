@@ -139,7 +139,8 @@ int xocl_subdev_create(xdev_handle_t xdev_hdl,
 {
 	struct xocl_dev_core *core = (struct xocl_dev_core *)xdev_hdl;
 	struct xocl_subdev *subdev;
-	void *priv_data;
+	void *priv_data = NULL;
+	size_t data_len = 0;
 	resource_size_t iostart;
 	struct resource *res = NULL;
 	int i, retval;
@@ -184,7 +185,7 @@ int xocl_subdev_create(xdev_handle_t xdev_hdl,
 	else
 		snprintf(devname, sizeof(devname) - 1, "%s%s",
 				sdev_info->name, SUBDEV_SUFFIX);
-	xocl_xdev_info(xdev_hdl, "creating subdev %s id %d",
+	xocl_xdev_info(xdev_hdl, "creating subdev %s inst %d",
 			devname, subdev->inst);
 	subdev->pldev = platform_device_alloc(devname, subdev->inst);
 	if (!subdev->pldev) {
@@ -219,8 +220,22 @@ int xocl_subdev_create(xdev_handle_t xdev_hdl,
 		priv_data = vzalloc(sdev_info->data_len);
 		memcpy(priv_data, sdev_info->priv_data,
 				sdev_info->data_len);
+		data_len = sdev_info->data_len;
+	}
+
+	if (sdev_info->dyn_ip > 0) {
+		retval = xocl_fdt_build_priv_data(xdev_hdl, subdev,
+				&priv_data, &data_len);
+		if (retval) {
+			xocl_xdev_err(xdev_hdl, "failed to get priv data");
+			goto error;
+		}
+	}
+
+	if (priv_data) {
+pr_info("ADD priv data for %s\n", subdev->info.name);
 		retval = platform_device_add_data(subdev->pldev, priv_data,
-			sdev_info->data_len);
+			data_len);
 		vfree(priv_data);
 		if (retval) {
 			xocl_xdev_err(xdev_hdl, "failed to add data");
@@ -230,7 +245,7 @@ int xocl_subdev_create(xdev_handle_t xdev_hdl,
 
 	subdev->pldev->dev.parent = &core->pdev->dev;
 
-	xocl_xdev_info(xdev_hdl, "Created subdev %s id %d",
+	xocl_xdev_info(xdev_hdl, "Created subdev %s inst %d",
 			devname, subdev->inst);
 
 	retval = platform_device_add(subdev->pldev);
@@ -251,7 +266,7 @@ int xocl_subdev_create(xdev_handle_t xdev_hdl,
 			devname, retval);
 		return -EAGAIN;
 	}
-	xocl_xdev_info(xdev_hdl, "subdev %s id %d is active",
+	xocl_xdev_info(xdev_hdl, "subdev %s inst %d is active",
 			devname, subdev->inst);
 
 	return 0;
@@ -317,53 +332,69 @@ int xocl_subdev_create_by_id(xdev_handle_t xdev_hdl, int id)
 			&core->priv.subdev_info[i]);
 }
 
-int xocl_subdev_create_all(xdev_handle_t xdev_hdl,
-	struct xocl_subdev_info *sdev_info, u32 subdev_num)
+int xocl_subdev_create_all(xdev_handle_t xdev_hdl)
 {
 	struct xocl_dev_core *core = (struct xocl_dev_core *)xdev_hdl;
 	struct FeatureRomHeader rom;
-	u32	id;
-	int	i, ret = 0;
-
-	if (core->priv.flags & XOCL_DSAFLAG_DYNAMIC_IP)
-		goto skip_reload;
+	int	i, ret = 0, subdev_num = 0;
+	struct xocl_subdev_info *subdev_info;
 
 	/* lookup update table */
 	ret = xocl_subdev_create_by_id(xdev_hdl, XOCL_SUBDEV_FEATURE_ROM);
-	if (ret && ret != -EEXIST)
-		goto failed;
-
-	for (i = 0; i < ARRAY_SIZE(dsa_vbnv_map); i++) {
-		xocl_get_raw_header(core, &rom);
-		if ((core->pdev->vendor == dsa_vbnv_map[i].vendor ||
-			dsa_vbnv_map[i].vendor == (u16)PCI_ANY_ID) &&
-			(core->pdev->device == dsa_vbnv_map[i].device ||
-			dsa_vbnv_map[i].device == (u16)PCI_ANY_ID) &&
-			(core->pdev->subsystem_device ==
-			dsa_vbnv_map[i].subdevice ||
-			dsa_vbnv_map[i].subdevice == (u16)PCI_ANY_ID) &&
-			!strncmp(rom.VBNVName, dsa_vbnv_map[i].vbnv,
-			sizeof(rom.VBNVName))) {
-			sdev_info = dsa_vbnv_map[i].priv_data->subdev_info;
-			subdev_num = dsa_vbnv_map[i].priv_data->subdev_num;
-			xocl_fill_dsa_priv(xdev_hdl, dsa_vbnv_map[i].priv_data);
-			break;
+	if (!ret) {
+		for (i = 0; i < ARRAY_SIZE(dsa_vbnv_map); i++) {
+			xocl_get_raw_header(core, &rom);
+			if ((core->pdev->vendor == dsa_vbnv_map[i].vendor ||
+				dsa_vbnv_map[i].vendor == (u16)PCI_ANY_ID) &&
+				(core->pdev->device == dsa_vbnv_map[i].device ||
+				dsa_vbnv_map[i].device == (u16)PCI_ANY_ID) &&
+				(core->pdev->subsystem_device ==
+				dsa_vbnv_map[i].subdevice ||
+				dsa_vbnv_map[i].subdevice == (u16)PCI_ANY_ID) &&
+				!strncmp(rom.VBNVName, dsa_vbnv_map[i].vbnv,
+				sizeof(rom.VBNVName))) {
+				//static_devs = dsa_vbnv_map[i].priv_data->subdev_info;
+				//static_dev_num = dsa_vbnv_map[i].priv_data->subdev_num;
+				xocl_fill_dsa_priv(xdev_hdl, dsa_vbnv_map[i].priv_data);
+				break;
+			}
 		}
 	}
 
-skip_reload:
+	subdev_info = vzalloc(sizeof(*subdev_info) *
+		(core->dyn_subdev_num + core->priv.subdev_num));
+	if (!subdev_info) {
+		ret = -ENOMEM;
+		goto failed;
+	}
+
+	/* construct subdevice info array */
+	for (i = 0; i < core->priv.subdev_num; i++)
+		xocl_subdev_update_info(core, subdev_info, &subdev_num,
+				&core->priv.subdev_info[i]);
+
+	for (i = 0; i < core->dyn_subdev_num; i++) {
+		if (core->dyn_subdev_store[i].pf != XOCL_PCI_FUNC(core))
+			continue;
+		xocl_subdev_update_info(core, subdev_info, &subdev_num,
+				&core->dyn_subdev_store[i].info);
+	}
+
 	/* create subdevices */
 	for (i = 0; i < subdev_num; i++) {
-		id = sdev_info[i].id;
-
-		ret = xocl_subdev_create(xdev_hdl, &sdev_info[i]);
+		ret = xocl_subdev_create(xdev_hdl, &subdev_info[i]);
 		if (ret && ret != -EEXIST && ret != -EAGAIN)
 			goto failed;
 	}
 
+	if (subdev_info)
+		vfree(subdev_info);
+
 	return 0;
 
 failed:
+	if (subdev_info)
+		vfree(subdev_info);
 	xocl_subdev_destroy_all(xdev_hdl);
 	return ret;
 }
