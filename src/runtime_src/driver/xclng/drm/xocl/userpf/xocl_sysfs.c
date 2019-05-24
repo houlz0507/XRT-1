@@ -215,6 +215,17 @@ failed:
 
 static DEVICE_ATTR(p2p_enable, 0644, p2p_enable_show, p2p_enable_store);
 
+static ssize_t dev_offline_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct xocl_dev *xdev = dev_get_drvdata(dev);
+	int val = xocl_drvinst_get_offline(xdev) ? 1 : 0;
+
+	return sprintf(buf, "%d\n", val);
+}
+
+static DEVICE_ATTR(dev_offline, 0444, dev_offline_show, NULL);
+
 static ssize_t mig_calibration_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -326,6 +337,7 @@ static struct attribute *xocl_attrs[] = {
 	&dev_attr_memstat_raw.attr,
 	&dev_attr_user_pf.attr,
 	&dev_attr_p2p_enable.attr,
+	&dev_attr_dev_offline.attr,
 	&dev_attr_mig_calibration.attr,
 	&dev_attr_link_width.attr,
 	&dev_attr_link_speed.attr,

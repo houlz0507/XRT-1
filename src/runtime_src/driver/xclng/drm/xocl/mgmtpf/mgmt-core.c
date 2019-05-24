@@ -866,11 +866,9 @@ static void xclmgmt_extended_probe(struct xclmgmt_dev *lro)
 	}
 	xocl_err(&pdev->dev, "created all sub devices");
 
-#if 0
 	ret = xocl_icap_download_boot_firmware(lro);
 	if (ret)
 		goto fail_all_subdev;
-#endif
 
 	lro->core.thread_arg.health_cb = health_check_cb;
 	lro->core.thread_arg.arg = lro;
