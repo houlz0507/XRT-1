@@ -563,7 +563,7 @@ int xocl_subdev_create_by_level(xdev_handle_t xdev_hdl, int level)
 		if (subdev_info[i].level != level)
 			continue;
 		ret = __xocl_subdev_create(xdev_hdl, &subdev_info[i]);
-		if (ret)
+		if (ret && ret != -EEXIST && ret != -EAGAIN)
 			goto failed;
 	}
 
@@ -833,8 +833,10 @@ int xocl_subdev_online_by_level(xdev_handle_t xdev_hdl, int level)
 			if (core->subdevs[i][j].info.level == level) {
 				ret = __xocl_subdev_online(xdev_hdl,
 					&core->subdevs[i][j]);
-				if (ret)
+				if (ret && ret != -EAGAIN)
 					goto failed;
+				else
+					ret = 0;
 			}
 
 failed:
@@ -878,8 +880,10 @@ int xocl_subdev_online_all(xdev_handle_t xdev_hdl)
 		for (j = 0; j < XOCL_SUBDEV_MAX_INST; j++) {
 			ret = __xocl_subdev_online(xdev_hdl,
 				&core->subdevs[i][j]);
-			if (ret)
+			if (ret && ret != -EAGAIN)
 				goto failed;
+			else
+				ret = 0;
 		}
 	}
 

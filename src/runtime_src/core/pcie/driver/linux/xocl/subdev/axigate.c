@@ -32,10 +32,29 @@ struct axi_gate {
 	bool			freeze;
 };
 
+static inline u32 gate_read32(struct axi_gate *gate, void __iomem *addr)
+{
+	u32 val;
+	val = XOCL_READ_REG32(addr);
+	xocl_info(&gate->pdev->dev, "Read off %ld, base %lx, val %d",
+			(unsigned long)(addr - gate->base),
+			(unsigned long)(gate->base), val);
+	return val;
+}
+
+static inline void gate_write32(struct axi_gate *gate, void __iomem *addr,
+		u32 val)
+{
+	XOCL_WRITE_REG32(val, addr);
+	xocl_info(&gate->pdev->dev, "Write off %ld, base %lx, val %d",
+			(unsigned long)(addr - gate->base),
+			(unsigned long)(gate->base), val);
+}
+
 #define reg_rd(g, r)					\
-	XOCL_READ_REG32(&((struct axi_gate_regs *)g->base)->r)
+	gate_read32(g, &((struct axi_gate_regs *)g->base)->r)
 #define reg_wr(g, v, r)					\
-	XOCL_WRITE_REG32(v, &((struct axi_gate_regs *)g->base)->r)
+	gate_write32(g, &((struct axi_gate_regs *)g->base)->r, v)
 
 static int axigate_freeze(struct platform_device *pdev)
 {
@@ -55,9 +74,15 @@ static int axigate_freeze(struct platform_device *pdev)
 			goto failed;
 		}
 	}
+
+	(void) reg_rd(gate, iag_rd);
+	reg_wr(gate, 1, iag_wr);
+	ndelay(500);
+
 	(void) reg_rd(gate, iag_rd);
 	reg_wr(gate, 0, iag_wr);
 	(void) reg_rd(gate, iag_rd);
+
 	gate->freeze = true;
 
 failed:
@@ -78,7 +103,7 @@ static int axigate_free(struct platform_device *pdev)
 		goto failed;
 
 	(void) reg_rd(gate, iag_rd);
-	reg_wr(gate, 0x2, iag_wr);
+	reg_wr(gate, 0x1, iag_wr); // been 0x2
 	ndelay(500);
 	(void) reg_rd(gate, iag_rd);
 	reg_wr(gate, 0x3, iag_wr);
@@ -163,6 +188,8 @@ static int axigate_probe(struct platform_device *pdev)
 		goto failed;
 	}
 
+	xocl_info(&pdev->dev, "Axigate mapped to %lx, level %d",
+			(unsigned long)gate->base, gate->level);
 	mutex_init(&gate->gate_lock);
 
 	return 0;

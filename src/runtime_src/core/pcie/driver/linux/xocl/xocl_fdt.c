@@ -20,7 +20,7 @@
 #include "version.h"
 
 #define LEVEL1_INT_NODE "/exposes/interfaces/level1"
-#define LEVEL1_DEV_PATH "/exposes/regions/level1_prp/ips"
+#define LEVEL1_DEV_PATH "/exposes/regions/prp/ips"
 
 #define LEVEL0_DEV_PATH "/_self_/ips"
 struct ip_node {
@@ -211,7 +211,7 @@ static struct xocl_subdev_map		subdev_map[] = {
 	{
 		XOCL_SUBDEV_XVC_PRI,
 		XOCL_XVC_PRI,
-		{ "axibscanmgmtbld", NULL },
+		{ "axibscanmgmtblp", NULL },
 		1,
 		0,
 	       	NULL,

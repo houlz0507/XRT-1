@@ -220,7 +220,7 @@ enum {
 	IORES_KDMA,
 	IORES_MAX,
 };
-#define RESNAME_GATEPRBLD	"gateprbld"
+#define RESNAME_GATEPRBLD	"gateprblp"
 #define RESNAME_MEMCALIB	"memcalib"
 #define RESNAME_GATEPRPRP	"gateprprp"
 #define RESNAME_CLKWIZKERNEL1	"clkwizkernel1"
