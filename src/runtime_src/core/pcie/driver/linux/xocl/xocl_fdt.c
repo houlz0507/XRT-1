@@ -351,6 +351,8 @@ static bool get_userpf_info(void *fdt, int node, u32 pf)
 	int depth = 1;
 
 	do {
+		if (fdt_getprop(fdt, node, PROP_INTERFACE_UUID, NULL))
+			return true;
 		val = fdt_getprop(fdt, node, PROP_PF_NUM, &len);
 		if (val && (len == sizeof(pf)) && htonl(*(u32 *)val) == pf)
 			return true;
@@ -706,12 +708,22 @@ const char *xocl_fdt_next_intf_uuid(xdev_handle_t xdev_hdl, void *blob,
 	return uuid;
 }
 
-int xocl_fdt_check_uuids(xdev_handle_t xdev_hdl, void *blob,
-	void *subset_blob)
+int xocl_fdt_check_uuids(xdev_handle_t xdev_hdl, const void *blob,
+	const void *subset_blob)
 {
 	const char *subset_int_uuid = NULL;
 	const char *int_uuid = NULL;
 	int offset, subset_offset;
+
+	if (!blob || !subset_blob) {
+		xocl_xdev_err(xdev_hdl, "blob is NULL");
+		return -EINVAL;
+	}
+
+	if (fdt_check_header(blob) || fdt_check_header(subset_blob)) {
+		xocl_xdev_err(xdev_hdl, "Invalid fdt blob");
+		return -EINVAL;
+	}
 
 	offset = fdt_path_offset(blob, INTERFACES_PATH);
 	subset_offset = fdt_path_offset(subset_blob, INTERFACES_PATH);

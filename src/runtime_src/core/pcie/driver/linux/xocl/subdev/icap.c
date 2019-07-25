@@ -1866,6 +1866,7 @@ static int icap_download_bitstream_axlf(struct platform_device *pdev,
 	const struct axlf_section_header *primaryHeader = NULL;
 	const struct axlf_section_header *clockHeader = NULL;
 	const struct axlf_section_header *secondaryHeader = NULL;
+	const struct axlf_section_header *dtbHeader = NULL;
 	struct axlf *xclbin = (struct axlf *)u_xclbin;
 	char *buffer;
 	xdev_handle_t xdev = xocl_get_xdev(pdev);
@@ -1891,6 +1892,24 @@ static int icap_download_bitstream_axlf(struct platform_device *pdev,
 		}
 
 		/* Match the xclbin with the hardware. */
+		dtbHeader = get_axlf_section_hdr(icap, xclbin,
+			PARTITION_METADATA);
+		if (dtbHeader) {
+			ICAP_INFO(icap, "check interface uuid");
+			if (!XDEV(xdev)->fdt_blob) {
+				ICAP_ERR(icap, "did not find platform dtb");
+				err = -EINVAL;
+				goto done;
+			}
+			err = xocl_fdt_check_uuids(xdev,
+				(const void *)XDEV(xdev)->fdt_blob,
+				(const void *)((char*)xclbin +
+				dtbHeader->m_sectionOffset));
+			if (err) {
+				ICAP_ERR(icap, "interface uuids do not match");
+				goto done;
+			}
+		}
 		if (!xocl_verify_timestamp(xdev,
 			xclbin->m_header.m_featureRomTimeStamp)) {
 			ICAP_ERR(icap, "timestamp of ROM not match Xclbin");

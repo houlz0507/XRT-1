@@ -251,11 +251,12 @@ xocl_read_axlf_helper(struct xocl_drm *drm_p, struct drm_xocl_axlf *axlf_ptr)
 	struct mem_topology *new_topology = NULL, *topology;
 	struct xocl_dev *xdev = drm_p->xdev;
 	xuid_t *xclbin_id;
+	const struct axlf_section_header * dtbHeader = NULL;
 
 	userpf_info(xdev, "READ_AXLF IOCTL\n");
 
 	if (!xocl_is_unified(xdev)) {
-		printk(KERN_INFO "XOCL: not unified Shell");
+		xocl_xdev_err(xdev, "XOCL: not unified Shell");
 		return err;
 	}
 
@@ -292,23 +293,9 @@ xocl_read_axlf_helper(struct xocl_drm *drm_p, struct drm_xocl_axlf *axlf_ptr)
 	if (!uuid_equal(xclbin_id, &bin_obj.m_header.uuid)) {
 		if (live_clients(xdev, NULL) ||
 			atomic_read(&xdev->outstanding_execs)) {
-			printk(KERN_ERR "Current xclbin is busy, can't change\n");
+			xocl_xdev_err(xdev, "Current xclbin is busy, can't change\n");
 			return -EBUSY;
 		}
-	}
-
-	/* Ignore timestamp matching for AWS platform */
-	if (!xocl_is_aws(xdev) && !xocl_verify_timestamp(xdev,
-		bin_obj.m_header.m_featureRomTimeStamp)) {
-		printk(KERN_ERR "TimeStamp of ROM did not match Xclbin\n");
-		return -EINVAL;
-	}
-
-	printk(KERN_INFO "XOCL: VBNV and TimeStamps matched\n");
-
-	if (uuid_equal(xclbin_id, &bin_obj.m_header.uuid)) {
-		printk(KERN_INFO "Skipping repopulating topology, connectivity,ip_layout data\n");
-		goto done;
 	}
 
 	/* Copy from user space and proceed. */
@@ -319,10 +306,45 @@ xocl_read_axlf_helper(struct xocl_drm *drm_p, struct drm_xocl_axlf *axlf_ptr)
 		goto done;
 	}
 
-	printk(KERN_INFO "XOCL: Marker 5\n");
+	xocl_xdev_err(xdev, "XOCL: Marker 5\n");
 
 	if (copy_from_user(axlf, axlf_ptr->xclbin, bin_obj.m_header.m_length)) {
 		err = -EFAULT;
+		goto done;
+	}
+
+	dtbHeader = xocl_axlf_section_header(xdev, axlf,
+		PARTITION_METADATA);
+	if (dtbHeader) {
+		xocl_xdev_info(xdev, "check interface uuid");
+		if (!XDEV(xdev)->fdt_blob) {
+			xocl_xdev_err(xdev, "did not find platform dtb");
+			err = -EINVAL;
+			goto done;
+		}
+		err = xocl_fdt_check_uuids(xdev,
+			(const void *)XDEV(xdev)->fdt_blob,
+			(const void *)((char*)&bin_obj +
+			dtbHeader->m_sectionOffset));
+		if (err) {
+			xocl_xdev_err(xdev, "interface uuids do not match");
+			err = -EINVAL;
+			goto done;
+		}
+	}
+
+	/* Ignore timestamp matching for AWS platform */
+	if (!xocl_is_aws(xdev) && !xocl_verify_timestamp(xdev,
+		bin_obj.m_header.m_featureRomTimeStamp)) {
+		xocl_xdev_err(xdev, "TimeStamp of ROM did not match Xclbin\n");
+		err = -EINVAL;
+		goto done;
+	}
+
+	xocl_xdev_err(xdev, "XOCL: VBNV and TimeStamps matched");
+
+	if (uuid_equal(xclbin_id, &bin_obj.m_header.uuid)) {
+		xocl_xdev_err(xdev, "Skipping repopulating topology, connectivity,ip_layout data");
 		goto done;
 	}
 
@@ -386,7 +408,8 @@ done:
 		userpf_err(xdev, "err: %ld\n", err);
 	else
 		userpf_info(xdev, "Loaded xclbin %pUb", xclbin_id);
-	vfree(axlf);
+	if (axlf)
+		vfree(axlf);
 	return err;
 }
 
@@ -429,6 +452,6 @@ int xocl_reclock_ioctl(struct drm_device *dev, void *data,
 	err = xocl_reclock(xdev, data);
 	xocl_drvinst_set_offline(xdev, false);
 
-	printk(KERN_INFO "%s err: %d\n", __func__, err);
+	xocl_xdev_err(xdev, "%s err: %d\n", __func__, err);
 	return err;
 }
