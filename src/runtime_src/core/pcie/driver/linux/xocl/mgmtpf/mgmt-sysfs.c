@@ -268,7 +268,8 @@ static ssize_t rp_program_store(struct device *dev, struct device_attribute *da,
 	if (kstrtou32(buf, 10, &val) == -EINVAL)
 		return -EINVAL;
 	else if (val == 1)
-		ret = xocl_icap_download_rp(lro, XOCL_SUBDEV_LEVEL_PRP, false);
+		ret = xocl_icap_download_rp(lro, XOCL_SUBDEV_LEVEL_PRP,
+				RP_DOWNLOAD_NORMAL);
 	else if (val == 2) {
 		ret = xclmgmt_program_shell(lro);
 		(void) xocl_peer_listen(lro, xclmgmt_mailbox_srv, (void *)lro);

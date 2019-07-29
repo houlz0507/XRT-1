@@ -739,20 +739,27 @@ int xocl_fdt_check_uuids(xdev_handle_t xdev_hdl, const void *blob,
 		subset_offset = fdt_next_subnode(subset_blob, subset_offset)) {
 		subset_int_uuid = fdt_getprop(subset_blob, subset_offset,
 				"interface_uuid", NULL);
-		if (!subset_int_uuid)
+		if (!subset_int_uuid) {
+			xocl_xdev_err(xdev_hdl, "failed to get subset uuid");
 			return -EINVAL;
+		}
 		for (offset = fdt_first_subnode(blob, offset);
 			offset >= 0;
 			offset = fdt_next_subnode(blob, offset)) {
 			int_uuid = fdt_getprop(blob, offset, "interface_uuid",
 					NULL);
-			if (!int_uuid)
+			if (!int_uuid) {
+				xocl_xdev_err(xdev_hdl, "failed to get uuid");
 				return -EINVAL;
+			}
 			if (!strcmp(int_uuid, subset_int_uuid))
 				break;
 		}
-		if (offset < 0)
+		if (offset < 0) {
+			xocl_xdev_err(xdev_hdl, "Can not find uuid %s",
+				subset_int_uuid);
 			return -ENOENT;
+		}
 	}
 
 	return 0;

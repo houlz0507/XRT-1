@@ -459,6 +459,10 @@ int xclmgmt_program_shell(struct xclmgmt_dev *lro)
 {
 	int ret;
 
+	ret = xocl_icap_download_rp(lro, XOCL_SUBDEV_LEVEL_PRP,
+			RP_DOWNLOAD_DRY);
+	if (ret)
+		goto failed;
 	xocl_drvinst_set_offline(lro, true);
 
 	health_thread_stop(lro);
@@ -469,7 +473,8 @@ int xclmgmt_program_shell(struct xclmgmt_dev *lro)
 		goto failed;
 	}
 
-	ret = xocl_icap_download_rp(lro, XOCL_SUBDEV_LEVEL_PRP, true);
+	ret = xocl_icap_download_rp(lro, XOCL_SUBDEV_LEVEL_PRP,
+			RP_DOWNLOAD_FORCE);
 	if (ret) {
 		mgmt_err(lro, "program shell failed %d", ret);
 		goto failed;

@@ -1510,7 +1510,7 @@ static long icap_download_clear_bitstream(struct icap *icap)
 
 // DECLARE_WAIT_QUEUE_HEAD(mytestwait);
 
-static int icap_download_rp(struct platform_device *pdev, int level, bool force)
+static int icap_download_rp(struct platform_device *pdev, int level, int flag)
 {
 	struct icap *icap = platform_get_drvdata(pdev);
 	xdev_handle_t xdev = xocl_get_xdev(pdev);
@@ -1521,15 +1521,31 @@ static int icap_download_rp(struct platform_device *pdev, int level, bool force)
 
 	mutex_lock(&icap->icap_lock);
 	if (!icap->rp_bit || !icap->rp_fdt) {
-		xocl_xdev_err(xdev, "Invalid reprogram request");
+		xocl_xdev_err(xdev, "Invalid reprogram request %p.%p",
+			icap->rp_bit, icap->rp_fdt);
 		ret = -EINVAL;
 		goto failed;
 	}
-	if (!force) {
+
+	if (!XDEV(xdev)->fdt_blob) {
+		xocl_xdev_err(xdev, "Empty fdt blob");
+		ret = -EINVAL;
+		goto failed;
+	}
+
+	ret = xocl_fdt_check_uuids(xdev, icap->rp_fdt, XDEV(xdev)->fdt_blob);
+	if (ret) {
+		xocl_xdev_err(xdev, "Incompatible uuids");
+		goto failed;
+	}
+
+	if (flag == RP_DOWNLOAD_DRY)
+		goto end;
+	else if (flag == RP_DOWNLOAD_NORMAL) {
 		(void) xocl_peer_notify(xocl_get_xdev(icap->icap_pdev), &mbreq,
 				sizeof(struct mailbox_req));
 		ICAP_INFO(icap, "Notified userpf to program rp");
-		goto failed;
+		goto end;
 	}
 
 	ret = xocl_fdt_blob_input(xdev, icap->rp_fdt);
@@ -1566,13 +1582,18 @@ static int icap_download_rp(struct platform_device *pdev, int level, bool force)
 		goto failed;
 	}
 
-	vfree(icap->rp_bit);
-	icap->rp_bit = NULL;
-	icap->rp_bit_len = 0;
-	vfree(icap->rp_fdt);
-	icap->rp_fdt = NULL;
-
 failed:
+	if (icap->rp_bit) {
+		vfree(icap->rp_bit);
+		icap->rp_bit = NULL;
+		icap->rp_bit_len = 0;
+	}
+	if (icap->rp_fdt) {
+		vfree(icap->rp_fdt);
+		icap->rp_fdt = NULL;
+	}
+
+end:
 	mutex_unlock(&icap->icap_lock);
 	return ret;
 }
@@ -3540,6 +3561,8 @@ static ssize_t icap_write_rp(struct file *filp, const char __user *data,
 
 	memcpy(icap->rp_bit, header, icap->rp_bit_len);
 	vfree(axlf);
+
+	ICAP_INFO(icap, "write axlf to device successfully. len %ld", len);
 
 	mutex_unlock(&icap->icap_lock);
 

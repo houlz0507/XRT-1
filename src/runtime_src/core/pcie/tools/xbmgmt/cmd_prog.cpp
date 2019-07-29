@@ -19,6 +19,7 @@
 #include <fstream>
 #include <climits>
 #include <getopt.h>
+#include <unistd.h>
 
 #include "xbmgmt.h"
 #include "core/pcie/linux/scan.h"
@@ -26,9 +27,55 @@
 #include "core/pcie/driver/linux/include/mgmt-ioctl.h"
 
 const char *subCmdProgDesc = "Download xclbin onto the device";
-const char *subCmdProgUsage = "--path xclbin [--card bdf] [--force]";
+const char *subCmdProgUsage =
+    "--urp --path xclbin [--card bdf] [--force]\n"
+    "--prp --path xsabin [--card bdf] [--force]";
 
-int program(unsigned index, const std::string& xclbin)
+int program_prp(unsigned index, const std::string& xclbin)
+{
+    std::ifstream stream(xclbin.c_str(), std::ios_base::binary);
+
+    if(!stream.is_open()) {
+        std::cout << "ERROR: Cannot open " << xclbin << std::endl;
+	return -ENOENT;
+    }
+
+    auto dev = pcidev::get_dev(index, false);
+    int fd = dev->devfs_open("icap", O_WRONLY);
+
+    if (fd == -1) {
+        std::cout << "ERROR: Cannot open icap for writing." << std::endl;
+        return -ENODEV;
+    }
+
+    stream.seekg(0, stream.end);
+    int length = stream.tellg();
+    stream.seekg(0, stream.beg);
+
+    char *buffer = new char[length];
+    stream.read(buffer, length);
+    ssize_t ret = write(fd, buffer, length);
+    delete [] buffer;
+
+    if (ret <= 0) {
+        std::cout << "ERROR: Write prp to icap subdev failed." << std::endl;
+        close(fd);
+        return -errno;
+    }
+    close(fd);
+
+    std::string errmsg;
+    dev->sysfs_put("", "rp_program", errmsg, "2");
+    if (!errmsg.empty()) {
+        std::cout << errmsg << std::endl;
+        close(fd);
+	return -EINVAL;
+    }
+
+    return 0;
+}
+
+int program_urp(unsigned index, const std::string& xclbin)
 {
     std::ifstream stream(xclbin.c_str());
 
@@ -59,12 +106,14 @@ int progHandler(int argc, char *argv[])
         return -EINVAL;
 
     unsigned index = UINT_MAX;
-    bool force = false;
+    bool force = false, urp = false, prp = false;
     std::string file;
     const option opts[] = {
         { "card", required_argument, nullptr, '0' },
         { "force", no_argument, nullptr, '1' },
         { "path", required_argument, nullptr, '2' },
+        { "urp", no_argument, nullptr, '3' },
+        { "prp", no_argument, nullptr, '4' },
     };
 
     while (true) {
@@ -84,9 +133,20 @@ int progHandler(int argc, char *argv[])
         case '2':
             file = std::string(optarg);
             break;
+        case '3':
+            urp = true;
+            break;
+        case '4':
+            prp = true;
+            break;
         default:
             return -EINVAL;
         }
+    }
+
+    if (urp == prp) {
+        std::cout << "Please specify programming URP or PRP." << std::endl;
+        return -EINVAL;
     }
 
     if (file.empty())
@@ -103,5 +163,8 @@ int progHandler(int argc, char *argv[])
             return -ECANCELED;
     }
 
-    return program(index, file);
+    if (prp)
+        return program_prp(index, file);
+
+    return program_urp(index, file);
 }
