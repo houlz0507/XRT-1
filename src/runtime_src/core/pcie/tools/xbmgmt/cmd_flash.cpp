@@ -110,7 +110,7 @@ static int scanDevices(bool verbose, bool json)
 
 static bool match_id(DSAInfo& dsa, std::string& id)
 {
-    if (dsa.uuid.empty())
+    if (dsa.interface_uuids.size() == 0)
     {
         uint64_t ts = strtoull(id.c_str(), nullptr, 16);
         if (ts == dsa.timestamp)
@@ -121,7 +121,7 @@ static bool match_id(DSAInfo& dsa, std::string& id)
         std::string::size_type i = uuid.find("0x");
         if (i == 0)
             uuid.erase(0, 2);
-        if (!strncmp(dsa.uuid.c_str(), uuid.c_str(), uuid.length()))
+        if (!strncmp(dsa.interface_uuids[0].c_str(), uuid.c_str(), uuid.length()))
             return true;
     }
     return false;
@@ -129,14 +129,15 @@ static bool match_id(DSAInfo& dsa, std::string& id)
 
 static bool match_id(DSAInfo& dsa1, DSAInfo& dsa2)
 {
-    if (dsa1.uuid.empty() != dsa2.uuid.empty())
+    if (dsa1.interface_uuids.size() != dsa2.interface_uuids.size())
         return false;
-    else if (dsa1.uuid.empty())
+    else if (dsa1.interface_uuids.size() == 0)
     {
         if (dsa1.timestamp == dsa2.timestamp)
             return true;
-    } else {
-        if (!strcmp(dsa1.uuid.c_str(), dsa2.uuid.c_str()))
+    }
+    else if (dsa1.interface_uuids[0].compare(dsa2.interface_uuids[0]) == 0)
+    {
             return true;
     }
     return false;
@@ -368,7 +369,7 @@ static int autoFlash(unsigned index, std::string& shell,
     // Collect all indexes of boards need updating
     for (unsigned i : boardsToCheck) {
         DSAInfo dsa = selectShell(i, shell, id);
-        if (dsa.DSAValid)
+        if (dsa.hasFlashImage)
             boardsToUpdate.push_back(std::make_pair(i, dsa));
     }
 

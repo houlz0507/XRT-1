@@ -1075,7 +1075,7 @@ const char *xocl_fdt_get_prp_int_uuid(xdev_handle_t xdev_hdl, void *blob,
 int xocl_fdt_add_pair(xdev_handle_t xdev_hdl, void *blob, char *name,
 		void *val, int size);
 const char *xocl_fdt_next_intf_uuid(xdev_handle_t xdev_hdl, void *blob,
-		        int offset);
+		        int *offset);
 int xocl_fdt_check_uuids(xdev_handle_t xdev_hdl, const void *blob,
 		        const void *subset_blob);
 const struct axlf_section_header *xocl_axlf_section_header(

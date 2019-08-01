@@ -1298,7 +1298,7 @@ static int icap_download_boot_firmware(struct platform_device *pdev)
 	unsigned short deviceid = pcidev->device;
 	struct axlf *bin_obj_axlf;
 	const struct firmware *fw;
-	char fw_name[128];
+	char fw_name[256];
 	XHwIcap_Bit_Header bit_header = { 0 };
 	long err = 0;
 	uint64_t length = 0;
@@ -2025,7 +2025,6 @@ static int icap_download_bitstream_axlf(struct platform_device *pdev,
 			secondaryFirmwareLength);
 		if (err)
 			goto done;
-
 		if ((xocl_is_unified(xdev) || XOCL_DSA_XPR_ON(xdev)))
 			err = calibrate_mig(icap);
 		if (err)

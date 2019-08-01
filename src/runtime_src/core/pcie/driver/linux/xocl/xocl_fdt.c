@@ -84,7 +84,7 @@ static void *flash_build_priv(xdev_handle_t xdev_hdl, void *subdev, size_t *len)
 {
 	struct xocl_dev_core *core = XDEV(xdev_hdl);
 	struct xocl_flash_privdata *priv = NULL;
-	const char *prop, *flash_type;
+	const char *flash_type;
 	void *blob;
 	int node, proplen;
 
@@ -115,9 +115,6 @@ static void *flash_build_priv(xdev_handle_t xdev_hdl, void *subdev, size_t *len)
 	priv->flash_type = offsetof(struct xocl_flash_privdata, data);
 	priv->properties = priv->flash_type + strlen(flash_type) + 1;
 	strcpy((char *)priv + priv->flash_type, flash_type);
-
-	prop = fdt_getprop(blob, node, PROP_IO_OFFSET, NULL);
-	priv->bar_off = be64_to_cpu(*((u64 *)prop));
 
 	*len = proplen;
 
@@ -333,12 +330,12 @@ static int get_next_prop_by_name(void *fdt, int node, char *name,
 	int depth = 1;
 
 	do {
-		*val = fdt_getprop(fdt, node, name, &prop_len);
-		if (*val && (len == prop_len))
-			return node;
 		node = fdt_next_node(fdt, node, &depth);
 		if (node < 0 || depth < 1)
 			return -EFAULT;
+		*val = fdt_getprop(fdt, node, name, &prop_len);
+		if (*val && (len == prop_len))
+			return node;
 	} while (depth > 1);
 
 	return -ENOENT;
@@ -698,11 +695,11 @@ failed:
 }
 
 const char *xocl_fdt_next_intf_uuid(xdev_handle_t xdev_hdl, void *blob,
-	int offset)
+	int *offset)
 {
 	const void *uuid = NULL;
 
-	get_next_prop_by_name(blob, offset, PROP_INTERFACE_UUID,
+	*offset = get_next_prop_by_name(blob, *offset, PROP_INTERFACE_UUID,
 			        &uuid, UUID_PROP_LEN);
 
 	return uuid;
@@ -725,12 +722,10 @@ int xocl_fdt_check_uuids(xdev_handle_t xdev_hdl, const void *blob,
 		return -EINVAL;
 	}
 
-	offset = fdt_path_offset(blob, INTERFACES_PATH);
 	subset_offset = fdt_path_offset(subset_blob, INTERFACES_PATH);
-
-	if (offset < 0 || subset_offset < 0) {
-		xocl_xdev_err(xdev_hdl, "Invalid offset %d, subset_offset %d",
-				offset, subset_offset);
+	if (subset_offset < 0) {
+		xocl_xdev_err(xdev_hdl, "Invalid subset_offset %d",
+			       	subset_offset);
 		return -EINVAL;
 	}
 
@@ -743,6 +738,13 @@ int xocl_fdt_check_uuids(xdev_handle_t xdev_hdl, const void *blob,
 			xocl_xdev_err(xdev_hdl, "failed to get subset uuid");
 			return -EINVAL;
 		}
+		offset = fdt_path_offset(blob, INTERFACES_PATH);
+		if (offset < 0) {
+			xocl_xdev_err(xdev_hdl, "Invalid offset %d",
+			       	offset);
+			return -EINVAL;
+		}
+
 		for (offset = fdt_first_subnode(blob, offset);
 			offset >= 0;
 			offset = fdt_next_subnode(blob, offset)) {

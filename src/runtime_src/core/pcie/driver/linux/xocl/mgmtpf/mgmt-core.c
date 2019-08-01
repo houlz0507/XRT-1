@@ -1123,8 +1123,10 @@ static int xclmgmt_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	xocl_info(&pdev->dev, "minimum initialization done\n");
 
 	/* No further initialization for MFG board. */
-	if (minimum_initialization ||
-		(dev_info->flags & XOCL_DSAFLAG_MFG) != 0) {
+	if (minimum_initialization)
+		return 0;
+	else if ((dev_info->flags & XOCL_DSAFLAG_MFG) != 0) {
+		xocl_subdev_create_all(lro);
 		return 0;
 	}
 

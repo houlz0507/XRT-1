@@ -94,7 +94,6 @@ struct xocl_board_private {
 };
 
 struct xocl_flash_privdata {
-	u64			bar_off;
 	u32			flash_type;
 	u32			properties;
 	uint64_t		data[1];
@@ -1297,6 +1296,59 @@ struct xocl_subdev_map {
 		.mpsoc = true,						\
 	}
 
+#define XOCL_RES_FLASH_MFG_U50				\
+	((struct resource []) {				\
+		{					\
+			.start = 0x1F50000,		\
+			.end = 0x1F5FFFF,		\
+			.flags = IORESOURCE_MEM,	\
+		},					\
+	 })
+
+#define XOCL_DEVINFO_FLASH_MFG_U50				\
+	{						\
+		XOCL_SUBDEV_FLASH,			\
+		XOCL_FLASH,				\
+		XOCL_RES_FLASH_MFG_U50,			\
+		ARRAY_SIZE(XOCL_RES_FLASH_MFG_U50),	\
+	}
+
+#define	XOCL_RES_XMC_MFG_U50					\
+		((struct resource []) {			\
+			{				\
+			.start	= 0x140000,		\
+			.end 	= 0x141FFF,		\
+			.flags  = IORESOURCE_MEM,	\
+			},				\
+			{				\
+			.start	= 0x180000,		\
+			.end 	= 0x181FFF,		\
+			.flags  = IORESOURCE_MEM,	\
+			},				\
+		})
+
+#define	XOCL_DEVINFO_XMC_MFG_U50			\
+	{						\
+		XOCL_SUBDEV_MB,				\
+		XOCL_XMC,				\
+		XOCL_RES_XMC_MFG_U50,			\
+		ARRAY_SIZE(XOCL_RES_XMC_MFG_U50),	\
+	}
+
+#define MFG_RES_U50							\
+	((struct xocl_subdev_info []) {					\
+	 	XOCL_DEVINFO_FLASH_MFG_U50,				\
+	 	XOCL_DEVINFO_XMC_MFG_U50,				\
+	 })
+
+#define	XOCL_BOARD_XBB_MFG_U50						\
+	(struct xocl_board_private){					\
+		.flags = XOCL_DSAFLAG_MFG,				\
+		.board_name = "u50",					\
+		.subdev_info	= MFG_RES_U50,				\
+		.subdev_num = ARRAY_SIZE(MFG_RES_U50),			\
+		.flash_type = FLASH_TYPE_SPI,				\
+	}
 
 #define	XOCL_BOARD_XBB_MFG(board)					\
 	(struct xocl_board_private){					\
@@ -1553,7 +1605,7 @@ struct xocl_subdev_map {
 	{ XOCL_PCI_DEVID(0x10EE, 0xD004, PCI_ANY_ID, XBB_MFG("u250")) },\
 	{ XOCL_PCI_DEVID(0x10EE, 0xD008, PCI_ANY_ID, XBB_MFG("u280-es1")) }, \
 	{ XOCL_PCI_DEVID(0x10EE, 0xD00C, PCI_ANY_ID, XBB_MFG("u280")) },\
-	{ XOCL_PCI_DEVID(0x10EE, 0xD020, PCI_ANY_ID, XBB_MFG("u50")) }, \
+	{ XOCL_PCI_DEVID(0x10EE, 0xD020, PCI_ANY_ID, XBB_MFG_U50) }, \
 	{ XOCL_PCI_DEVID(0x10EE, 0xEB10, PCI_ANY_ID, XBB_MFG("twitch")) }, \
 	{ XOCL_PCI_DEVID(0x13FE, 0x806C, PCI_ANY_ID, XBB_MFG("advantech")) }
 

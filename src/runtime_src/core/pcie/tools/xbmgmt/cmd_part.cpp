@@ -16,20 +16,22 @@
 
 #include <string>
 #include <iostream>
+#include <map>
 #include <fstream>
 #include <climits>
 #include <getopt.h>
 #include <unistd.h>
 
 #include "xbmgmt.h"
+#include "firmware_image.h"
 #include "core/pcie/linux/scan.h"
 #include "xclbin.h"
 #include "core/pcie/driver/linux/include/mgmt-ioctl.h"
 
-const char *subCmdProgDesc = "Download xclbin onto the device";
-const char *subCmdProgUsage =
-    "--urp --path xclbin [--card bdf] [--force]\n"
-    "--prp --path xsabin [--card bdf] [--force]";
+const char *subCmdPartDesc = "Show and download partition onto the device";
+const char *subCmdPartUsage =
+    "--program --path xclbin [--card bdf] [--force]\n"
+    "--scan";
 
 int program_prp(unsigned index, const std::string& xclbin)
 {
@@ -98,7 +100,12 @@ int program_urp(unsigned index, const std::string& xclbin)
     return ret ? -errno : ret;
 }
 
-int progHandler(int argc, char *argv[])
+int scan(int argc, char *argv[])
+{
+	return 0;
+}
+
+int program(int argc, char *argv[])
 {
     sudoOrDie();
 
@@ -106,14 +113,12 @@ int progHandler(int argc, char *argv[])
         return -EINVAL;
 
     unsigned index = UINT_MAX;
-    bool force = false, urp = false, prp = false;
+    bool force = false;
     std::string file;
     const option opts[] = {
         { "card", required_argument, nullptr, '0' },
         { "force", no_argument, nullptr, '1' },
         { "path", required_argument, nullptr, '2' },
-        { "urp", no_argument, nullptr, '3' },
-        { "prp", no_argument, nullptr, '4' },
     };
 
     while (true) {
@@ -133,20 +138,9 @@ int progHandler(int argc, char *argv[])
         case '2':
             file = std::string(optarg);
             break;
-        case '3':
-            urp = true;
-            break;
-        case '4':
-            prp = true;
-            break;
         default:
             return -EINVAL;
         }
-    }
-
-    if (urp == prp) {
-        std::cout << "Please specify programming URP or PRP." << std::endl;
-        return -EINVAL;
     }
 
     if (file.empty())
@@ -163,8 +157,47 @@ int progHandler(int argc, char *argv[])
             return -ECANCELED;
     }
 
-    if (prp)
-        return program_prp(index, file);
+    DSAInfo dsa(file);
+    std::vector<std::string> blp_uuids;
+    auto dev = pcidev::get_dev(index, false);
+    std::string errmsg;
 
-    return program_urp(index, file);
+    dev->sysfs_get("", "blp_interfaces", errmsg, blp_uuids);
+    if (!errmsg.empty())
+    {
+        // 1RP platform
+        return program_urp(index, file);
+    }
+
+    for (std::string uuid : blp_uuids)
+        std::cout << uuid << "\n";
+    //if (prp)
+    //    return program_prp(index, file);
+
+    //return program_urp(index, file);
+    return 0;
+}
+
+static const std::map<std::string, std::function<int(int, char **)>> optList = {
+    { "--program", program },
+    { "--scan", scan },
+};
+
+int partHandler(int argc, char *argv[])
+{
+    if (argc < 2)
+        return -EINVAL;
+
+    sudoOrDie();
+
+    std::string subcmd(argv[1]);
+
+    auto cmd = optList.find(subcmd);
+    if (cmd == optList.end())
+        return -EINVAL;
+
+    argc--;
+    argv++;
+
+    return cmd->second(argc, argv);
 }

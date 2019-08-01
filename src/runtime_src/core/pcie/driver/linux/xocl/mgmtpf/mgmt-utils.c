@@ -458,11 +458,30 @@ failed:
 int xclmgmt_program_shell(struct xclmgmt_dev *lro)
 {
 	int ret;
+	char *blob = NULL;
+	int len;
 
+	blob = lro->core.fdt_blob;
+	len = fdt_totalsize(lro->bld_blob);
+	lro->core.fdt_blob = vmalloc(len);
+	if (!lro->core.fdt_blob) {
+		ret = -ENOMEM;
+		lro->core.fdt_blob = blob;
+		goto failed;
+	}
+	memcpy(lro->core.fdt_blob, lro->bld_blob, len);
 	ret = xocl_icap_download_rp(lro, XOCL_SUBDEV_LEVEL_PRP,
 			RP_DOWNLOAD_DRY);
-	if (ret)
+	if (ret) {
+		vfree(lro->core.fdt_blob);
+		lro->core.fdt_blob = blob;
 		goto failed;
+	}
+
+	vfree(blob);
+
+	/* dry run passed, any failure below will cause device offline */
+
 	xocl_drvinst_set_offline(lro, true);
 
 	health_thread_stop(lro);
@@ -492,7 +511,6 @@ int xclmgmt_program_shell(struct xclmgmt_dev *lro)
 	xocl_drvinst_set_offline(lro, false);
 
 failed:
-
 	return ret;
 
 }
@@ -502,7 +520,7 @@ int xclmgmt_load_fdt(struct xclmgmt_dev *lro)
 	const struct firmware			*fw = NULL;
 	const struct axlf_section_header	*dtc_header;
 	struct axlf				*bin_axlf;
-	char					fw_name[128];
+	char					fw_name[256];
 	int					ret;
 
         ret = xocl_rom_find_firmware(lro, fw_name, sizeof(fw_name),
@@ -531,6 +549,12 @@ int xclmgmt_load_fdt(struct xclmgmt_dev *lro)
 
 	release_firmware(fw);
 	fw = NULL;
+
+	if (lro->core.priv.flags & XOCL_DSAFLAG_MFG) {
+		(void) xocl_subdev_create_by_id(lro, XOCL_SUBDEV_FLASH);
+		(void) xocl_subdev_create_by_id(lro, XOCL_SUBDEV_MB);
+		goto failed;
+	}
 
 	lro->bld_blob = vmalloc(fdt_totalsize(lro->core.fdt_blob));
 	if (!lro->bld_blob) {

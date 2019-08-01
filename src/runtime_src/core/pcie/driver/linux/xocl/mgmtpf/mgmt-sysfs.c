@@ -285,11 +285,12 @@ static ssize_t blp_interfaces_show(struct device *dev,
 {
         struct xclmgmt_dev *lro = dev_get_drvdata(dev);
 	const char *uuid;
+	int offset = 0;
 
 	if (!lro->bld_blob)
 		return -EINVAL;
 
-	uuid = xocl_fdt_next_intf_uuid(lro, lro->bld_blob, 0);
+	uuid = xocl_fdt_next_intf_uuid(lro, lro->bld_blob, &offset);
 	if (!uuid)
 		return -EINVAL;
 
@@ -297,6 +298,26 @@ static ssize_t blp_interfaces_show(struct device *dev,
 }
 
 static DEVICE_ATTR_RO(blp_interfaces);
+
+static ssize_t interface_uuids_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct xclmgmt_dev *lro = dev_get_drvdata(dev);
+	const char *uuid;
+	int node = 0, off = 0;
+
+	if (!lro->core.fdt_blob)
+		return -EINVAL;
+
+	for (uuid = xocl_fdt_next_intf_uuid(lro, lro->core.fdt_blob, &node);
+	    uuid && node > 0;
+	    uuid = xocl_fdt_next_intf_uuid(lro, lro->core.fdt_blob, &node))
+		off += sprintf(buf + off, "%s\n", uuid);
+
+	return off;
+}
+
+static DEVICE_ATTR_RO(interface_uuids);
 
 static struct attribute *mgmt_attrs[] = {
 	&dev_attr_instance.attr,
@@ -320,6 +341,7 @@ static struct attribute *mgmt_attrs[] = {
 	&dev_attr_config_mailbox_comm_id.attr,
 	&dev_attr_rp_program.attr,
 	&dev_attr_blp_interfaces.attr,
+	&dev_attr_interface_uuids.attr,
 	NULL,
 };
 

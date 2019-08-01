@@ -276,14 +276,43 @@ std::vector<DSAInfo> Flasher::getInstalledDSA()
         return DSAs;
     }
 
+    uint16_t vendor_id, device_id, subsystem_id;
+    std::string err;
+    mDev->sysfs_get("", "vendor", err, vendor_id);
+    if (!err.empty())
+    {
+        std::cout << err << std::endl;
+        return DSAs;
+    }
+    mDev->sysfs_get("", "device", err, device_id);
+    if (!err.empty())
+    {
+        std::cout << err << std::endl;
+        return DSAs;
+    }
+    mDev->sysfs_get("", "subsystem_device", err, subsystem_id);
+    if (!err.empty())
+    {
+        std::cout << err << std::endl;
+        return DSAs;
+    }
+    mDev->sysfs_get("", "device", err, device_id);
+    mDev->sysfs_get("", "subsystem_device", err, subsystem_id);
     // Obtain installed DSA info.
     auto installedDSAs = firmwareImage::getIntalledDSAs();
     for (DSAInfo& dsa : installedDSAs)
     {
-        if (onBoard.vendor != dsa.vendor ||
+	  //  std::cout << "DSA NAME :" << dsa.name << "\n";
+	  //  std::cout << "BOARD: " << "ven" << onBoard.vendor << "dev" << onBoard.board << "vid " << vendor_id << "did " << device_id << "\n";
+	  //  std::cout << "DSA : " << "ven" << dsa.vendor << "dev" << dsa.board << "vid " << dsa.vendor_id << "did " << dsa.device_id << "ts " << dsa.timestamp << "\n";
+        if (!dsa.hasFlashImage ||
+            onBoard.vendor != dsa.vendor ||
             onBoard.board != dsa.board ||
-            dsa.timestamp == NULL_TIMESTAMP)
-            continue;
+            dsa.timestamp == NULL_TIMESTAMP ||
+            (dsa.vendor_id && vendor_id != dsa.vendor_id) ||
+            (dsa.device_id && device_id != dsa.device_id) ||
+            (dsa.subsystem_id && subsystem_id != dsa.subsystem_id))
+                continue;
         DSAs.push_back(dsa);
     }
 
