@@ -24,6 +24,7 @@
 #define PROP_IO_OFFSET "reg"
 #define PROP_INTERRUPTS "interrupts"
 #define PROP_INTERFACE_UUID "interface_uuid"
+#define PROP_LOGIC_UUID "logic_uuid"
 
 #define UUID_PROP_LEN 65 
 

@@ -323,19 +323,32 @@ static struct xocl_subdev_map		subdev_map[] = {
  */
 #define XOCL_FDT_ALL	-1
 
-static int get_next_prop_by_name(void *fdt, int node, char *name,
-	const void **val, int len)
+int xocl_fdt_get_next_prop_by_name(xdev_handle_t xdev_hdl, void *blob,
+	    int offset, char *name, const void **prop, int *prop_len)
 {
-	int prop_len;
-	int depth = 1;
+	int depth = 1, len;
+	const char *pname;
+	const void *p;
+	int node = offset;
 
 	do {
-		node = fdt_next_node(fdt, node, &depth);
+		node = fdt_next_node(blob, node, &depth);
 		if (node < 0 || depth < 1)
 			return -EFAULT;
-		*val = fdt_getprop(fdt, node, name, &prop_len);
-		if (*val && (len == prop_len))
-			return node;
+
+		for (offset = fdt_first_property_offset(blob, node);
+		    offset >= 0;
+		    offset = fdt_next_property_offset(blob, offset)) {
+			pname = NULL;
+			p = fdt_getprop_by_offset(blob, offset,
+					&pname, &len);
+			if (p && pname && !strcmp(name, pname)) {
+				*prop = p;
+				if (prop_len)
+					*prop_len = len;
+				return offset;
+			}
+		}
 	} while (depth > 1);
 
 	return -ENOENT;
@@ -692,17 +705,6 @@ static int xocl_fdt_parse_blob(xdev_handle_t xdev_hdl, char *blob,
 
 failed:
 	return dev_num;
-}
-
-const char *xocl_fdt_next_intf_uuid(xdev_handle_t xdev_hdl, void *blob,
-	int *offset)
-{
-	const void *uuid = NULL;
-
-	*offset = get_next_prop_by_name(blob, *offset, PROP_INTERFACE_UUID,
-			        &uuid, UUID_PROP_LEN);
-
-	return uuid;
 }
 
 int xocl_fdt_check_uuids(xdev_handle_t xdev_hdl, const void *blob,

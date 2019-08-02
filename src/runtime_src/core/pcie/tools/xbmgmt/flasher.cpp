@@ -331,7 +331,7 @@ DSAInfo Flasher::getOnBoardDSA()
     bool is_mfg = false;
     mDev->sysfs_get("", "mfg", err, is_mfg);
     mDev->sysfs_get("", "board_name", err, board_name);
-    mDev->sysfs_get("", "blp_interfaces", err, uuid);
+    mDev->sysfs_get("", "logic_uuids", err, uuid);
     if (is_mfg)
     {
         std::stringstream ss;

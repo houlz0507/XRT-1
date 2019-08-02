@@ -86,7 +86,7 @@ static void uuid2ts(const std::string& uuid, uint64_t& ts)
     ts = strtoull(str.c_str(), nullptr, 16);
 }
 
-void getIntUUIDFromDTB(void *blob, uint64_t &ts, std::vector<std::string> &uuids)
+void getUUIDFromDTB(void *blob, uint64_t &ts, std::vector<std::string> &uuids)
 {
     struct fdt_header *bph = (struct fdt_header *)blob;
     uint32_t version = be32toh(bph->version);
@@ -117,7 +117,11 @@ void getIntUUIDFromDTB(void *blob, uint64_t &ts, std::vector<std::string> &uuids
         if (version < 16 && sz >= 8)
             p = PALIGN(p, 8);
 
-        if (!strcmp(s, "interface_uuid"))
+        if (!strcmp(s, "logic_uuid"))
+        {
+            uuids.insert(uuids.begin(), std::string(p));
+        }
+	else if (!strcmp(s, "interface_uuid"))
         {
             uuids.push_back(std::string(p));
         }
@@ -132,14 +136,16 @@ DSAInfo::DSAInfo(const std::string& filename, uint64_t ts, const std::string& id
     timestamp(ts), bmcVer(bmc),
     vendor_id(0), device_id(0), subsystem_id(0)
 {
-    if (filename.empty())
-        return;
-
-    size_t dotpos = filename.rfind(".");
-    size_t slashpos = filename.rfind("/");
+    size_t dotpos;
+    size_t slashpos;
+    if (!filename.empty())
+    {
+        dotpos = filename.rfind(".");
+        slashpos = filename.rfind("/");
+    }
 
     // Just DSA name.
-    if (dotpos == std::string::npos)
+    if (filename.empty() || dotpos == std::string::npos)
     {
         name = filename;
         getVendorBoardFromDSAName(name, vendor, board);
@@ -148,7 +154,7 @@ DSAInfo::DSAInfo(const std::string& filename, uint64_t ts, const std::string& id
             auto installedDSAs = firmwareImage::getIntalledDSAs();
             for (DSAInfo& dsa: installedDSAs)
 	    {
-                if (dsa.interface_uuids.size() > 0 && id.compare(dsa.interface_uuids[0]) == 0)
+                if (dsa.uuids.size() > 0 && id.compare(dsa.uuids[0]) == 0)
                 {
                     name = dsa.name;
                     vendor_id = dsa.vendor_id;
@@ -236,7 +242,7 @@ DSAInfo::DSAInfo(const std::string& filename, uint64_t ts, const std::string& id
             std::shared_ptr<char> dtbbuf(new char[dtbSection->m_sectionSize]);
             in.seekg(dtbSection->m_sectionOffset);
             in.read(dtbbuf.get(), dtbSection->m_sectionSize);
-	    getIntUUIDFromDTB(dtbbuf.get(), timestamp, interface_uuids);
+	    getUUIDFromDTB(dtbbuf.get(), timestamp, uuids);
         }
         //timestamp = ap->m_header.m_featureRomTimeStamp;
         hasFlashImage = (xclbin::get_axlf_section(ap, MCS) != nullptr);

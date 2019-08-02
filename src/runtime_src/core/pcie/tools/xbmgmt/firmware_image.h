@@ -45,7 +45,7 @@ public:
     std::string name;
     std::string file;
     uint64_t timestamp;
-    std::vector<std::string> interface_uuids;
+    std::vector<std::string> uuids;
     std::string bmcVer;
 
     uint16_t vendor_id;

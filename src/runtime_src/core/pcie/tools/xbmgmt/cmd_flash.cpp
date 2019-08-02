@@ -76,10 +76,10 @@ static int scanDevices(bool verbose, bool json)
             std::cout << "Card [" << f.sGetDBDF() << "]" << std::endl;
             std::cout << "\tCard type:\t\t" << board.board << std::endl;
             std::cout << "\tFlash type:\t\t" << f.sGetFlashType() << std::endl;
-            std::cout << "\tShell running on FPGA:" << std::endl;
+            std::cout << "\tFlashable partition running on FPGA:" << std::endl;
             std::cout << "\t\t" << board << std::endl;
 
-            std::cout << "\tShell package installed in system:\t";
+            std::cout << "\tFlashable partitions installed in system:\t";
             if (!installedDSA.empty()) {
                 for (auto& d : installedDSA)
                     std::cout << std::endl << "\t\t" << d;
@@ -110,7 +110,7 @@ static int scanDevices(bool verbose, bool json)
 
 static bool match_id(DSAInfo& dsa, std::string& id)
 {
-    if (dsa.interface_uuids.size() == 0)
+    if (dsa.uuids.size() == 0)
     {
         uint64_t ts = strtoull(id.c_str(), nullptr, 16);
         if (ts == dsa.timestamp)
@@ -121,7 +121,7 @@ static bool match_id(DSAInfo& dsa, std::string& id)
         std::string::size_type i = uuid.find("0x");
         if (i == 0)
             uuid.erase(0, 2);
-        if (!strncmp(dsa.interface_uuids[0].c_str(), uuid.c_str(), uuid.length()))
+        if (!strncmp(dsa.uuids[0].c_str(), uuid.c_str(), uuid.length()))
             return true;
     }
     return false;
@@ -129,14 +129,14 @@ static bool match_id(DSAInfo& dsa, std::string& id)
 
 static bool match_id(DSAInfo& dsa1, DSAInfo& dsa2)
 {
-    if (dsa1.interface_uuids.size() != dsa2.interface_uuids.size())
+    if (dsa1.uuids.size() != dsa2.uuids.size())
         return false;
-    else if (dsa1.interface_uuids.size() == 0)
+    else if (dsa1.uuids.size() == 0)
     {
         if (dsa1.timestamp == dsa2.timestamp)
             return true;
     }
-    else if (dsa1.interface_uuids[0].compare(dsa2.interface_uuids[0]) == 0)
+    else if (dsa1.uuids[0].compare(dsa2.uuids[0]) == 0)
     {
             return true;
     }

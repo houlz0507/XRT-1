@@ -1070,12 +1070,10 @@ int xocl_fdt_overlay(void *fdt, int target, void *fdto, int node, int pf);
 int xocl_fdt_build_priv_data(xdev_handle_t xdev_hdl, struct xocl_subdev *subdev,
 		void **priv_data,  size_t *data_len);
 int xocl_fdt_get_userpf(xdev_handle_t xdev_hdl, void *blob);
-const char *xocl_fdt_get_prp_int_uuid(xdev_handle_t xdev_hdl, void *blob,
-		int *len);
 int xocl_fdt_add_pair(xdev_handle_t xdev_hdl, void *blob, char *name,
 		void *val, int size);
-const char *xocl_fdt_next_intf_uuid(xdev_handle_t xdev_hdl, void *blob,
-		        int *offset);
+int xocl_fdt_get_next_prop_by_name(xdev_handle_t xdev_hdl, void *blob,
+    int offset, char *name, const void **prop, int *prop_len);
 int xocl_fdt_check_uuids(xdev_handle_t xdev_hdl, const void *blob,
 		        const void *subset_blob);
 const struct axlf_section_header *xocl_axlf_section_header(
