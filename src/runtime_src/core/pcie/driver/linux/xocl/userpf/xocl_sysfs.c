@@ -422,6 +422,46 @@ static ssize_t ulp_uuids_show(struct device *dev,
 
 static DEVICE_ATTR_RO(ulp_uuids);
 
+static ssize_t blp_info_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct xocl_dev *xdev = dev_get_drvdata(dev);
+	const void *info = NULL;
+	int node = -1, off = 0;
+
+	if (!xdev->core.fdt_blob || fdt_check_header(xdev->core.fdt_blob))
+		return -EINVAL;
+
+	node = xocl_fdt_get_next_prop_by_name(xdev, xdev->core.fdt_blob,
+		-1, PROP_PARTITION_INFO_BLP, &info, NULL);
+	if (info && node >= 0)
+		off += sprintf(buf + off, "%s\n", (char *)info);
+
+	return off;
+}
+
+static DEVICE_ATTR_RO(blp_info);
+
+static ssize_t plp_info_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct xocl_dev *xdev = dev_get_drvdata(dev);
+	const void *info = NULL;
+	int node = -1, off = 0;
+
+	if (!xdev->core.fdt_blob || fdt_check_header(xdev->core.fdt_blob))
+		return -EINVAL;
+
+	node = xocl_fdt_get_next_prop_by_name(xdev, xdev->core.fdt_blob,
+		-1, PROP_PARTITION_INFO_PLP, &info, NULL);
+	if (info && node >= 0)
+		off += sprintf(buf + off, "%s\n", (char *)info);
+
+	return off;
+}
+
+static DEVICE_ATTR_RO(plp_info);
+
 /* - End attributes-- */
 static struct attribute *xocl_attrs[] = {
 	&dev_attr_xclbinuuid.attr,
@@ -444,6 +484,8 @@ static struct attribute *xocl_attrs[] = {
 	&dev_attr_interface_uuids.attr,
 	&dev_attr_logic_uuids.attr,
 	&dev_attr_ulp_uuids.attr,
+	&dev_attr_blp_info.attr,
+	&dev_attr_plp_info.attr,
 	NULL,
 };
 
