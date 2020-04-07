@@ -1040,7 +1040,7 @@ static ssize_t queue_rw(struct xocl_qdma *qdma, struct qdma_stream_queue *queue,
 	struct qdma_stream_async_arg *cb;
 	long	ret = 0;
 
-	xocl_info(&qdma->pdev->dev, "Read / Write Queue 0x%lx",
+	xocl_dbg(&qdma->pdev->dev, "Read / Write Queue 0x%lx",
 		queue->queue);
 
 	if (sz == 0)
