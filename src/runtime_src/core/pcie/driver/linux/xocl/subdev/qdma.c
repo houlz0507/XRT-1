@@ -105,6 +105,9 @@ struct qdma_stream_queue {
 	unsigned long		queue;
 	struct qdma_queue_conf  qconf;
 	u32			state;
+	spinlock_t		qlock;
+	unsigned long		refcnt;
+	wait_queue_head_t 	wq;
 	int			flowid;
 	int			routeid;
 	struct file		*file;
@@ -145,6 +148,8 @@ struct xocl_qdma {
 	u32			h2c_ringsz_idx;
 	u32			c2h_ringsz_idx;
 	u32			wrb_ringsz_idx;
+
+	struct mutex		str_dev_lock;
 
 	u16			instance;
 
@@ -1035,11 +1040,20 @@ static ssize_t queue_rw(struct xocl_qdma *qdma, struct qdma_stream_queue *queue,
 	struct qdma_stream_async_arg *cb;
 	long	ret = 0;
 
-	xocl_dbg(&qdma->pdev->dev, "Read / Write Queue 0x%lx",
+	xocl_info(&qdma->pdev->dev, "Read / Write Queue 0x%lx",
 		queue->queue);
 
 	if (sz == 0)
 		return 0;
+
+	spin_lock(&queue->qlock);
+	if (queue->state == QUEUE_STATE_CLEANUP) {
+		xocl_err(&qdma->pdev->dev, "Invalid queue state");
+		spin_unlock(&queue->qlock);
+		return -EINVAL;
+	}
+	queue->refcnt++;
+	spin_unlock(&queue->qlock);
 
 	if (((uint64_t)(buf) & ~PAGE_MASK) && queue->qconf.c2h) {
 		xocl_err(&qdma->pdev->dev,
@@ -1162,6 +1176,12 @@ failed:
 		return ret;
 	} else if (kiocb)
 		ret = -EIOCBQUEUED;
+
+	spin_lock(&queue->qlock);
+	queue->refcnt--;
+	if (!queue->refcnt && queue->state == QUEUE_STATE_CLEANUP)
+		wake_up(&queue->wq);
+	spin_unlock(&queue->qlock);
 
 	return ret;
 }
@@ -1300,12 +1320,25 @@ static int queue_flush(struct qdma_stream_queue *queue)
 	qdma = queue->qdma;
 
 	xocl_info(&qdma->pdev->dev, "Release Queue 0x%lx", queue->queue);
+	spin_lock(&queue->qlock);
+	if (queue->state != QUEUE_STATE_INITIALIZED) {
+		xocl_info(&qdma->pdev->dev, "Already released 0x%lx",
+			queue->queue);
+		spin_unlock(&queue->qlock);
+		return 0;
+	}
+	queue->state = QUEUE_STATE_CLEANUP;
+	spin_unlock(&queue->qlock);
 
+	wait_event(queue->wq, queue->refcnt == 0);
+
+	mutex_lock(&qdma->str_dev_lock);
 	qdma_stream_sysfs_destroy(queue);
 	if (queue->qconf.c2h)
 		qdma->queues[queue->qconf.qidx] = NULL;
 	else
 		qdma->queues[QDMA_QSETS_MAX + queue->qconf.qidx] = NULL;
+	mutex_unlock(&qdma->str_dev_lock);
 
 	ret = qdma_queue_stop((unsigned long)qdma->dma_handle, queue->queue,
 		NULL, 0);
@@ -1341,6 +1374,28 @@ failed:
 	return ret;
 }
 
+static long queue_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+{
+	struct xocl_qdma *qdma;
+	struct qdma_stream_queue *queue;
+	long result = 0;
+
+	queue = (struct qdma_stream_queue *)filp->private_data;
+	qdma = queue->qdma;
+
+	switch (cmd) {
+	case XOCL_QDMA_IOC_QUEUE_FLUSH:
+		result = queue_flush(queue);
+		break;
+	default:
+		xocl_err(&qdma->pdev->dev, "Invalid request %u", cmd & 0xff);
+		result = -EINVAL;
+		break;
+	}
+
+	return result;
+}
+
 static int queue_close(struct inode *inode, struct file *file)
 {
 	struct xocl_qdma *qdma;
@@ -1349,8 +1404,6 @@ static int queue_close(struct inode *inode, struct file *file)
 	queue = (struct qdma_stream_queue *)file->private_data;
 	if (!queue) 
 		return 0;
-
-	queue_flush(queue);
 
 	if (queue->req_cache)
 		vfree(queue->req_cache);
@@ -1372,6 +1425,7 @@ static struct file_operations queue_fops = {
 		.aio_write = queue_aio_write,
 #endif
 		.release = queue_close,
+		.unlocked_ioctl = queue_ioctl,
 };
 
 /* stream device file operations */
@@ -1398,6 +1452,8 @@ static long qdma_stream_ioctl_create_queue(struct xocl_qdma *qdma,
 	INIT_LIST_HEAD(&queue->req_pend_list);
 	INIT_LIST_HEAD(&queue->req_free_list);
 	spin_lock_init(&queue->req_lock);
+	spin_lock_init(&queue->qlock);
+	init_waitqueue_head(&queue->wq);
 
 	qconf = &queue->qconf;
 	qconf->st = 1; /* stream queue */
@@ -1512,8 +1568,10 @@ static long qdma_stream_ioctl_create_queue(struct xocl_qdma *qdma,
 
 	queue->qdma = qdma;
 
+	mutex_lock(&qdma->str_dev_lock);
 	ret = qdma_stream_sysfs_create(queue);
 	if (ret) {
+		mutex_unlock(&qdma->str_dev_lock);
 		xocl_err(&qdma->pdev->dev, "sysfs create failed");
 		goto failed;
 	}
@@ -1523,6 +1581,7 @@ static long qdma_stream_ioctl_create_queue(struct xocl_qdma *qdma,
 		qdma->queues[queue->qconf.qidx] = queue;
 	else
 		qdma->queues[QDMA_QSETS_MAX + queue->qconf.qidx] = queue;
+	mutex_unlock(&qdma->str_dev_lock);
 
 	fd_install(queue->qfd, queue->file);
 
@@ -1791,6 +1850,7 @@ static int qdma_probe(struct platform_device *pdev)
 
 	qdma->user_msix_mask = QDMA_USER_INTR_MASK;
 
+	mutex_init(&qdma->str_dev_lock);
 	spin_lock_init(&qdma->user_msix_table_lock);
 
 	platform_set_drvdata(pdev, qdma);
@@ -1844,6 +1904,8 @@ static int qdma_remove(struct platform_device *pdev)
 		}
 	}
 
+
+	mutex_destroy(&qdma->str_dev_lock);
 
 	platform_set_drvdata(pdev, NULL);
 	xocl_drvinst_free(qdma);

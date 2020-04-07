@@ -1173,6 +1173,7 @@ int shim::xclCreateWriteQueue(xclQueueContext *q_ctx, uint64_t *q_hdl)
     } else
         *q_hdl = q_info.handle;
 
+
      return rc ? -errno : rc;
 }
 
@@ -1206,9 +1207,13 @@ int shim::xclDestroyQueue(uint64_t q_hdl)
 {
     int rc;
 
+    rc = ioctl((int)q_hdl, XOCL_QDMA_IOC_QUEUE_FLUSH, NULL);
+    if (rc)
+        printf("%s: Flush Queue failed \n", __func__);
+
     rc = close((int)q_hdl);
     if (rc)
-        xrt_logmsg(XRT_ERROR, "%s: Destroy Queue failed", __func__);
+        printf("%s: Destroy Queue failed\n", __func__);
 
     return rc;
 }
