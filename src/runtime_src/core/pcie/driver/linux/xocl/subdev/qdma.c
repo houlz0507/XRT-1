@@ -1405,6 +1405,8 @@ static int queue_close(struct inode *inode, struct file *file)
 	if (!queue) 
 		return 0;
 
+	queue_flush(queue);
+
 	if (queue->req_cache)
 		vfree(queue->req_cache);
 
