@@ -427,10 +427,16 @@ int __init xocl_init_xvc(void)
 	int err = 0;
 
 	err = alloc_chrdev_region(&xvc_pub.dev, 0, XOCL_MAX_DEVICES,
-			XVC_DEV_NAME);
+			XOCL_DEVNAME(XOCL_XVC_PUB));
 	if (err < 0)
 		goto err_register_chrdev;
-	xvc_pri.dev = xvc_pub.dev;
+
+	err = alloc_chrdev_region(&xvc_pri.dev, 0, XOCL_MAX_DEVICES,
+			XOCL_DEVNAME(XOCL_XVC_PRI));
+	if (err < 0) {
+		unregister_chrdev_region(xvc_pub.dev, XOCL_MAX_DEVICES);
+		goto err_register_chrdev;
+	}
 
 	err = platform_driver_register(&xvc_driver);
 	if (err)
@@ -439,6 +445,7 @@ int __init xocl_init_xvc(void)
 
 err_driver_reg:
 	unregister_chrdev_region(xvc_pub.dev, XOCL_MAX_DEVICES);
+	unregister_chrdev_region(xvc_pri.dev, XOCL_MAX_DEVICES);
 err_register_chrdev:
 	return err;
 }

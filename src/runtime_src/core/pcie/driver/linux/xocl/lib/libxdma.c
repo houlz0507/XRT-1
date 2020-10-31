@@ -815,15 +815,6 @@ static int engine_start(struct xdma_engine *engine,
 	return 0;
 }
 
-static void xdma_request_free(struct xdma_request_cb *req)
-{
-	if (((unsigned long)req) >= VMALLOC_START &&
-	    ((unsigned long)req) < VMALLOC_END)
-		vfree(req);
-	else
-		kfree(req);
-}
-
 static void xdma_request_release(struct xdma_dev *xdev,
 			struct xdma_request_cb *req)
 {
@@ -833,8 +824,6 @@ static void xdma_request_release(struct xdma_dev *xdev,
 			     req->dir);
 		sgt->nents = 0;
 	}
-
-	xdma_request_free(req);
 }
 
 static int free_desc_set(struct xdma_engine *engine,
@@ -915,8 +904,23 @@ static int process_completions(struct xdma_engine *engine,
 
 		/* Update completed transfer length */
 		for (i = req->desc_completed;
-				i <(desc_count + req->desc_completed); i++)
-			req->done  += req->sdesc[i].len;
+		    i <(desc_count + req->desc_completed); i++) {
+			unsigned int tlen;
+			struct scatterlist *sg;
+
+			sg = req->sg_comp;
+			BUG_ON(!sg);
+			tlen = sg_dma_len(sg) - req->sg_comp_off;
+			if (req->sg_comp_off + desc_blen_max < tlen) {
+				req->sg_comp_off += desc_blen_max;
+				req->done  += desc_blen_max;
+			} else {
+				req->sg_comp_off = 0;
+				req->sg_comp = sg_next(sg);
+				req->done += tlen;
+			}
+
+		}
 
 		req->desc_completed += desc_count;
 		desc_dequeued -= desc_count;
@@ -943,7 +947,8 @@ static int process_completions(struct xdma_engine *engine,
 	return ret;
 }
 
-static struct xdma_request_cb *xdma_request_alloc(struct sg_table *sgt)
+static struct xdma_request_cb *xdma_request_alloc(struct xdma_engine *engine,
+	struct sg_table *sgt, struct xdma_async_cb *cb)
 {
 	unsigned sdesc_nr = 0;
 	struct xdma_request_cb *req;
@@ -967,52 +972,12 @@ static struct xdma_request_cb *xdma_request_alloc(struct sg_table *sgt)
 	size = sizeof(struct xdma_request_cb) +
 			    sdesc_nr * sizeof(struct sw_desc);
 
-	req = kzalloc(size, GFP_KERNEL);
-	if (!req) {
-		req = vmalloc(size);
-		if (req)
-			memset(req, 0, size);
-	}
-	if (!req) {
-		pr_info("OOM, %u sw_desc, %u.\n", sdesc_nr, size);
-		return NULL;
-	}
+	req = cb ? &cb->req : &engine->req_cache;
+	memset(req, 0, sizeof(*req));
 
 	req->sw_desc_cnt = sdesc_nr;
 
 	return req;
-}
-
-static int xdma_init_request(struct xdma_request_cb *req)
-{
-	struct sg_table *sgt = req->sgt;
-	struct scatterlist *sg = sgt->sgl;
-	int i, j = 0;
-
-	for (i = 0, sg = sgt->sgl; i < sgt->nents; i++, sg = sg_next(sg)) {
-		unsigned int tlen = sg_dma_len(sg);
-		dma_addr_t addr = sg_dma_address(sg);
-
-		req->total_len += tlen;
-		while (tlen) {
-			req->sdesc[j].addr = addr;
-			if (tlen > desc_blen_max) {
-				req->sdesc[j].len = desc_blen_max;
-				addr += desc_blen_max;
-				tlen -= desc_blen_max;
-			} else {
-				req->sdesc[j].len = tlen;
-				tlen = 0;
-			}
-			j++;
-
-		}
-	}
-
-#ifdef __LIBXDMA_DEBUG__
-	xdma_request_cb_dump(req);
-#endif
-	return 0;
 }
 
 static void xdma_add_request(struct xdma_engine *engine,
@@ -1030,18 +995,31 @@ static void request_build(struct xdma_engine *engine,
 			  struct xdma_desc *desc_virt,
 			  struct xdma_request_cb *req, unsigned int desc_max)
 {
-	struct sw_desc *sdesc;
 	struct xdma_result *result_virt;
 	int i;
 	unsigned int result_pidx = engine->result_pidx;
 	dma_addr_t result_addr;
 
-	sdesc = &(req->sdesc[req->sw_desc_idx]);
+	for (i = 0; i < desc_max; i++) {
+		unsigned int tlen, len;
+		dma_addr_t addr;
 
-	for (i = 0; i < desc_max; i++, sdesc++) {
+		BUG_ON(!req->sg);
+		addr = sg_dma_address(req->sg) + req->sg_off;
+		tlen = sg_dma_len(req->sg) - req->sg_off;
+
+		if (req->sg_off + desc_blen_max < tlen) {
+			len = desc_blen_max;
+			req->sg_off += desc_blen_max;
+		} else {
+			len = tlen;
+			req->sg_off = 0;
+			req->sg = sg_next(req->sg);
+		}
+
 		/* fill in descriptor entry j with transfer details */
-		xdma_desc_set(desc_virt + i, sdesc->addr, req->ep_addr,
-			      sdesc->len, engine->dir);
+		xdma_desc_set(desc_virt + i, addr, req->ep_addr,
+			      len, engine->dir);
 		if (engine->streaming && engine->dir == DMA_FROM_DEVICE) {
 			result_addr = engine->cyclic_result_bus +
 					(result_pidx *
@@ -1061,7 +1039,7 @@ static void request_build(struct xdma_engine *engine,
 
 		/* for non-inc-add mode don't increment ep_addr */
 		if (!engine->non_incr_addr)
-			req->ep_addr += sdesc->len;
+			req->ep_addr += len;
 	}
 	engine->result_pidx = result_pidx;
 	req->sw_desc_idx += desc_max;
@@ -3102,10 +3080,12 @@ static void xdma_request_cb_dump(struct xdma_request_cb *req)
 	pr_info("request 0x%p, total %u, ep 0x%llx, sw_desc %u, sgt 0x%p.\n",
 		req, req->total_len, req->ep_addr, req->sw_desc_cnt, req->sgt);
 	sgt_dump(req->sgt);
+#if 0
 	for (i = 0; i < req->sw_desc_cnt; i++)
 		pr_info("%d/%u, 0x%llx, %u.\n",
 			i, req->sw_desc_cnt, req->sdesc[i].addr,
 			req->sdesc[i].len);
+#endif
 }
 #endif
 
@@ -3185,19 +3165,16 @@ ssize_t xdma_xfer_submit(void *dev_hndl, int channel, bool write, u64 ep_addr,
 		}
 	}
 
-	req = xdma_request_alloc(sgt);
-	if (!req)
-		return -ENOMEM;
+	req = xdma_request_alloc(engine, sgt, (struct xdma_async_cb *)cb);
+
 	req->dma_mapped = dma_mapped;
 	req->cb = cb;
 	req->dir = dir;
 	req->sgt = sgt;
 	req->ep_addr = ep_addr;
+	req->sg = sgt->sgl;
+	req->sg_comp = sgt->sgl;
 
-
-	rv = xdma_init_request(req);
-	if (rv < 0)
-		goto unmap_sgl;
 	xdma_add_request(engine, req);
 
 	dbg_tfr("%s, len %u sg cnt %u.\n", engine->name, req->total_len,
@@ -3311,9 +3288,7 @@ int xdma_performance_submit(struct xdma_dev *xdev, struct xdma_engine *engine)
 
 	buffer_virt = NULL;
 	/* allocates request without sgt entries */
-	req = xdma_request_alloc(0);
-	if (!req)
-		return -ENOMEM;
+	req = xdma_request_alloc(engine, 0, NULL);
 	spin_lock(&engine->lock);
 	if (engine->running) {
 		pr_warn("Dma Engine is busy\n");

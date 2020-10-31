@@ -43,6 +43,7 @@
 
 
 #include "../xocl_drv.h"
+#include "libxdma_api.h"
 
 #ifndef mmiowb
 #define mmiowb()               do { } while (0)
@@ -428,7 +429,15 @@ struct xdma_request_cb {
 	struct xdma_io_cb *cb;
 	unsigned int sw_desc_idx;
 	unsigned int sw_desc_cnt;
-	struct sw_desc sdesc[0];
+	struct scatterlist *sg;
+	struct scatterlist *sg_comp;
+	u32 sg_off;
+	u32 sg_comp_off;
+};
+
+struct xdma_async_cb {
+	struct xdma_io_cb cb;
+	struct xdma_request_cb req;
 };
 
 struct xdma_engine {
@@ -470,6 +479,7 @@ struct xdma_engine {
 	dma_addr_t cyclic_result_bus;	/* bus addr for transfer */
 	struct xdma_request_cb *cyclic_req;
 	struct sg_table cyclic_sgt;
+	struct xdma_request_cb req_cache;
 	u8 eop_found; /* used only for cyclic(rx:c2h) */
 	int eop_count;
 

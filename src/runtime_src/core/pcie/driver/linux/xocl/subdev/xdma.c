@@ -22,6 +22,7 @@
 #include "../xocl_drv.h"
 #include "../xocl_drm.h"
 #include "../lib/libxdma_api.h"
+#include "../lib/libxdma.h"
 
 #ifndef VM_RESERVED
 #define VM_RESERVED (VM_DONTEXPAND | VM_DONTDUMP)
@@ -145,7 +146,12 @@ static ssize_t xdma_async_migrate_bo(struct platform_device *pdev,
 	if (callback_fn && tx_ctx) {
 		//channel = (atomic_add_return(1, &async_dma_count)/MAX_REQS_ON_CHANNEL) % xdma->channel;
 		channel = atomic_add_return(1, &async_dma_count) % xdma->channel;
-		io_cb = kzalloc(sizeof(struct xdma_io_cb), GFP_KERNEL);
+		/* we should consider to use pre-allocated io_cb, it is fine
+		 * to return queue full for aysnc request
+		 * using kzalloc is slow and it can consume all memory if
+		 * hardware does not consume request fast enough
+		 */
+		io_cb = kzalloc(sizeof(struct xdma_async_cb), GFP_KERNEL);
 		if (!io_cb) {
 			xocl_err(&pdev->dev, "alloc xdma dev failed");
 			ret = -ENOMEM;
