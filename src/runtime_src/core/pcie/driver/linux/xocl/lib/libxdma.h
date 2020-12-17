@@ -657,7 +657,6 @@ void enable_perf(struct xdma_engine *engine);
 void get_perf_stats(struct xdma_engine *engine);
 void xdma_proc_aio_requests(void *dev_hndl, int channel, bool write);
 
-
 #endif /* XDMA_LIB_H */
 
 

@@ -27,6 +27,22 @@
 #define VM_RESERVED (VM_DONTEXPAND | VM_DONTDUMP)
 #endif
 
+#define XDMA_PERF_DEBUG
+
+#ifdef XDMA_PERF_DEBUG
+struct xdma_channel_counters {
+	u64			read_bytes;
+	u64			write_bytes;
+	u64			read_nsec;
+	u64			write_nsec;
+
+	u64			write_clock_cycle;
+	u64			write_data_cycle;
+	u64			read_clock_cycle;
+	u64			read_data_cycle;
+};
+#endif
+
 struct xdma_irq {
 	struct eventfd_ctx	*event_ctx;
 	bool			in_use;
@@ -55,6 +71,10 @@ struct xocl_xdma {
 	unsigned long long	*channel_usage[2];
 
 	struct mutex		stat_lock;
+
+#ifdef XDMA_PERF_DEBUG
+	struct xdma_channel_counters *chan_counters;
+#endif
 };
 
 static ssize_t xdma_migrate_bo(struct platform_device *pdev,
@@ -68,13 +88,46 @@ static ssize_t xdma_migrate_bo(struct platform_device *pdev,
 	int i = 0;
 	ssize_t ret;
 	unsigned long long pgaddr;
+#ifdef XDMA_PERF_DEBUG
+	u64 ns;
+#endif
 
 	xdma = platform_get_drvdata(pdev);
 	xocl_dbg(&pdev->dev, "TID %d, Channel:%d, Offset: 0x%llx, Dir: %d",
 		pid, channel, paddr, dir);
+#ifdef XDMA_PERF_DEBUG
+	ns = ktime_get_ns();
+	xdma_arm_perf_counts(xdma->dma_handle, dir, channel);
+#endif
 	ret = xdma_xfer_submit(xdma->dma_handle, channel, dir,
 		paddr, sgt, false, 10000, NULL);
 	if (ret >= 0) {
+#ifdef XDMA_PERF_DEBUG
+		struct xdma_perf_counts counts;
+
+		if (dir) {
+			xdma->chan_counters[channel].write_bytes += ret;
+			xdma->chan_counters[channel].write_nsec +=
+				ktime_get_ns() - ns;
+			xdma_read_perf_counts(xdma->dma_handle, true, channel,
+				&counts);
+			xdma->chan_counters[channel].write_clock_cycle +=
+				counts.clock_cycles;
+			xdma->chan_counters[channel].write_data_cycle +=
+				counts.data_cycles;
+		} else {
+			xdma->chan_counters[channel].read_bytes += ret;
+			xdma->chan_counters[channel].read_nsec +=
+				ktime_get_ns() - ns;
+			xdma_read_perf_counts(xdma->dma_handle, true, channel,
+				&counts);
+			xdma->chan_counters[channel].read_clock_cycle +=
+				counts.clock_cycles;
+			xdma->chan_counters[channel].read_data_cycle +=
+				counts.data_cycles;
+
+		}
+#endif
 		xdma->channel_usage[dir][channel] += ret;
 		return ret;
 	}
@@ -408,6 +461,41 @@ static struct xocl_dma_funcs xdma_ops = {
 	.user_intr_unreg = user_intr_unreg,
 };
 
+#ifdef XDMA_PERF_DEBUG
+static ssize_t perf_counters_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct xocl_xdma *xdma = platform_get_drvdata(to_platform_device(dev));
+	int count = 0;
+	int i;
+
+	for (i = 0; i < xdma->channel; i++) {
+		count += sprintf(buf + count,
+			"channel %d write %lld duration %lld\n",
+			i, xdma->chan_counters[i].write_bytes,
+			xdma->chan_counters[i].write_nsec);
+		count += sprintf(buf + count,
+			"channel %d read %lld duration %lld\n",
+			i, xdma->chan_counters[i].read_bytes,
+			xdma->chan_counters[i].read_nsec);
+
+		count += sprintf(buf + count,
+			"channel %d write_cycle %lld data_cycle %lld\n",
+			i, xdma->chan_counters[i].write_clock_cycle,
+			xdma->chan_counters[i].write_data_cycle);
+		count += sprintf(buf + count,
+			"channel %d read_cycle %lld data_cycle %lld\n",
+			i, xdma->chan_counters[i].read_clock_cycle,
+			xdma->chan_counters[i].read_data_cycle);
+	}
+
+	memset(xdma->chan_counters, 0,
+		sizeof(*xdma->chan_counters) * xdma->channel);
+	return count;
+}
+static DEVICE_ATTR_RO(perf_counters);
+#endif
+
 static ssize_t channel_stat_raw_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
@@ -425,8 +513,13 @@ static ssize_t channel_stat_raw_show(struct device *dev,
 }
 static DEVICE_ATTR_RO(channel_stat_raw);
 
+
+
 static struct attribute *xdma_attrs[] = {
 	&dev_attr_channel_stat_raw.attr,
+#ifdef XDMA_PERF_DEBUG
+	&dev_attr_perf_counters.attr,
+#endif
 	NULL,
 };
 
@@ -445,6 +538,11 @@ static int set_max_chan(struct platform_device *pdev,
 		xocl_err(&pdev->dev, "failed to alloc channel usage");
 		return -ENOMEM;
 	}
+#ifdef XDMA_PERF_DEBUG
+	xdma->chan_counters = devm_kzalloc(&pdev->dev,
+		sizeof(struct xdma_channel_counters) * xdma->channel,
+		GFP_KERNEL);
+#endif
 
 	sema_init(&xdma->channel_sem[0], xdma->channel);
 	sema_init(&xdma->channel_sem[1], xdma->channel);

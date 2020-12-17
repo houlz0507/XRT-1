@@ -297,6 +297,17 @@ void enable_perf(struct xdma_engine *engine)
 
 }
 
+void xdma_arm_perf_counts(void *dev_hndl, bool write, int channel)
+{
+	struct xdma_dev *xdev = (struct xdma_dev *)dev_hndl;
+	struct xdma_engine *engine;
+
+	engine = write ? &xdev->engine_h2c[channel] :
+		&xdev->engine_c2h[channel];
+
+	enable_perf(engine);
+}
+
 void get_perf_stats(struct xdma_engine *engine)
 {
 	u32 hi;
@@ -321,6 +332,29 @@ void get_perf_stats(struct xdma_engine *engine)
 	hi = read_register(&engine->regs->perf_pnd_hi);
 	lo = read_register(&engine->regs->perf_pnd_lo);
 	engine->xdma_perf->pending_count = build_u64(hi, lo);
+}
+
+void xdma_read_perf_counts(void *dev_hndl, bool write, int channel,
+	struct xdma_perf_counts *perf_counts)
+{
+	struct xdma_dev *xdev = (struct xdma_dev *)dev_hndl;
+	struct xdma_engine *engine;
+	u32 hi;
+	u32 lo;
+
+	engine = write ? &xdev->engine_h2c[channel] :
+		&xdev->engine_c2h[channel];
+
+
+	hi = read_register(&engine->regs->perf_cyc_hi);
+	lo = read_register(&engine->regs->perf_cyc_lo);
+
+	perf_counts->clock_cycles = build_u64(hi, lo);
+
+	hi = read_register(&engine->regs->perf_dat_hi);
+	lo = read_register(&engine->regs->perf_dat_lo);
+	perf_counts->data_cycles = build_u64(hi, lo);
+
 }
 
 static void engine_reg_dump(struct xdma_engine *engine)

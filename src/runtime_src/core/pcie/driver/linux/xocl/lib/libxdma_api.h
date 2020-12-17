@@ -76,6 +76,10 @@ struct xdma_io_cb {
 	void (*io_done)(unsigned long cb_hndl, int err);
 };
 
+struct xdma_perf_counts {
+	u64 clock_cycles;
+	u64 data_cycles;
+};
 
 /*
  * This struct should be constantly updated by XMDA using u64_stats_* APIs
@@ -197,6 +201,12 @@ int xdma_get_bypassio(void *dev_hndl, u64 *len, u32 *bar_idx);
 
 //xdma_get_channle_state - if no interrupt on DMA hang is available
 //xdma_channle_restart
+//
+void xdma_arm_perf_counts(void *dev_hndl, bool write, int channel);
+void xdma_read_perf_counts(void *dev_hndl, bool write, int channel,
+	struct xdma_perf_counts *counts);
+
+
 
 #endif
 
