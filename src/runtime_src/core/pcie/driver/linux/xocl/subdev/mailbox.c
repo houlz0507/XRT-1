@@ -200,6 +200,9 @@
 #include <linux/ioctl.h>
 #include "../xocl_drv.h"
 #include "mailbox_proto.h"
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
+#include <linux/sched/clock.h>
+#endif
 
 int mailbox_no_intr;
 module_param(mailbox_no_intr, int, (S_IRUGO|S_IWUSR));
@@ -363,13 +366,20 @@ enum {
 	MBX_STATE_STARTED
 };
 
-struct mailbox_intr_rec {
+struct mailbox_dbg_rec {
 	u64		mir_ts;
 	u32		mir_st_reg;
 	u32		mir_is_reg;
+	u32		mir_ip_reg;
 };
 
-#define MAX_INTR_RECS		10
+enum {
+	MAILBOX_INTR_REC,
+	MAILBOX_SND_REC,
+	MAILBOX_RCV_REC
+};
+
+#define MAX_RECS		10
 
 /*
  * The mailbox softstate.
@@ -417,8 +427,12 @@ struct mailbox {
 	uint64_t		mbx_opened;
 	uint32_t		mbx_state;
 
-	struct mailbox_intr_rec	mbx_intr_recs[MAX_INTR_RECS];
+	struct mailbox_dbg_rec	mbx_intr_recs[MAX_RECS];
 	u32			mbx_cur_intr_rec;
+	struct mailbox_dbg_rec	mbx_snd_recs[MAX_RECS];
+	u32			mbx_cur_snd_rec;
+	struct mailbox_dbg_rec	mbx_rcv_recs[MAX_RECS];
+	u32			mbx_cur_rcv_rec;
 };
 
 static inline const char *reg2name(struct mailbox *mbx, u32 *reg)
@@ -495,39 +509,90 @@ static bool is_rx_msg(struct mailbox_msg *msg)
 
 static void mailbox_dump_debug(struct mailbox *mbx)
 {
-	struct mailbox_intr_rec *rec = mbx->mbx_intr_recs;
+	struct mailbox_dbg_rec *rec;
 	unsigned long rem_nsec;
 	u64 ts;
 	int i, idx;
 
+	rec = mbx->mbx_intr_recs;
 	idx = mbx->mbx_cur_intr_rec;
-	for (i = 0; i < MAX_INTR_RECS; i++) {
+	for (i = 0; i < MAX_RECS; i++) {
 		ts = rec[idx].mir_ts;
 		rem_nsec = do_div(ts, 1000000000);
-		MBX_INFO(mbx, "[%5lu.%06lu], is 0x%x, st 0x%x",
+		MBX_INFO(mbx, "intr [%5lu.%06lu], is 0x%x, st 0x%x, ip 0x%x",
 			(unsigned long)ts, rem_nsec / 1000,
-			rec[idx].mir_is_reg, rec[idx].mir_st_reg);
+			rec[idx].mir_is_reg, rec[idx].mir_st_reg,
+			rec[idx].mir_ip_reg);
 		idx++;
-		idx %= MAX_INTR_RECS;
+		idx %= MAX_RECS;
 	}
+	rec = mbx->mbx_snd_recs;
+	idx = mbx->mbx_cur_snd_rec;
+	for (i = 0; i < MAX_RECS; i++) {
+		ts = rec[idx].mir_ts;
+		rem_nsec = do_div(ts, 1000000000);
+		MBX_INFO(mbx, "send [%5lu.%06lu], is 0x%x, st 0x%x, ip 0x%x",
+			(unsigned long)ts, rem_nsec / 1000,
+			rec[idx].mir_is_reg, rec[idx].mir_st_reg,
+			rec[idx].mir_ip_reg);
+		idx++;
+		idx %= MAX_RECS;
+	}
+	rec = mbx->mbx_rcv_recs;
+	idx = mbx->mbx_cur_rcv_rec;
+	for (i = 0; i < MAX_RECS; i++) {
+		ts = rec[idx].mir_ts;
+		rem_nsec = do_div(ts, 1000000000);
+		MBX_INFO(mbx, "recv [%5lu.%06lu], is 0x%x, st 0x%x, ip 0x%x",
+			(unsigned long)ts, rem_nsec / 1000,
+			rec[idx].mir_is_reg, rec[idx].mir_st_reg,
+			rec[idx].mir_ip_reg);
+		idx++;
+		idx %= MAX_RECS;
+	}
+
+	MBX_INFO(mbx, "Curr, is 0x%x, st 0x%x, ip 0x%x",
+		mailbox_reg_rd(mbx, &mbx->mbx_regs->mbr_is),
+		mailbox_reg_rd(mbx, &mbx->mbx_regs->mbr_status),
+		mailbox_reg_rd(mbx, &mbx->mbx_regs->mbr_ip));
+}
+
+static void mailbox_dbg_collect(struct mailbox *mbx, int rec_type)
+{
+	struct mailbox_dbg_rec *rec;
+
+	switch (rec_type) {
+	case MAILBOX_INTR_REC:
+		rec = &mbx->mbx_intr_recs[mbx->mbx_cur_intr_rec];
+		mbx->mbx_cur_intr_rec++;
+		mbx->mbx_cur_intr_rec %= MAX_RECS;
+		break;
+	case MAILBOX_SND_REC:
+		rec = &mbx->mbx_snd_recs[mbx->mbx_cur_snd_rec];
+		mbx->mbx_cur_snd_rec++;
+		mbx->mbx_cur_snd_rec %= MAX_RECS;
+		break;
+	case MAILBOX_RCV_REC:
+		rec = &mbx->mbx_rcv_recs[mbx->mbx_cur_rcv_rec];
+		mbx->mbx_cur_rcv_rec++;
+		mbx->mbx_cur_rcv_rec %= MAX_RECS;
+		break;
+	}
+
+	rec->mir_ts = local_clock();
+	rec->mir_is_reg = mailbox_reg_rd(mbx, &mbx->mbx_regs->mbr_is);
+	rec->mir_st_reg = mailbox_reg_rd(mbx, &mbx->mbx_regs->mbr_status);
+	rec->mir_ip_reg = mailbox_reg_rd(mbx, &mbx->mbx_regs->mbr_ip);
 }
 
 irqreturn_t mailbox_isr(int irq, void *arg)
 {
 	struct mailbox *mbx = (struct mailbox *)arg;
 	u32 is = mailbox_reg_rd(mbx, &mbx->mbx_regs->mbr_is);
-	struct mailbox_intr_rec *rec;
 
 	MBX_DBG(mbx, "intr status: 0x%x", is);
 
-	rec = &mbx->mbx_intr_recs[mbx->mbx_cur_intr_rec];
-	mbx->mbx_cur_intr_rec++;
-	mbx->mbx_cur_intr_rec %= MAX_INTR_RECS;
-
-	rec->mir_ts = local_clock();
-	rec->mir_is_reg = is;
-	rec->mir_st_reg = mailbox_reg_rd(mbx, &mbx->mbx_regs->mbr_status);
-
+	mailbox_dbg_collect(mbx, MAILBOX_INTR_REC);
 	mailbox_reg_wr(mbx, &mbx->mbx_regs->mbr_is, FLAG_STI | FLAG_RTI);
 
 	/* notify both RX and TX channel anyway */
@@ -938,6 +1003,7 @@ static void chan_recv_pkt(struct mailbox_channel *ch)
 
 	BUG_ON(valid_pkt(pkt));
 
+	mailbox_dbg_collect(mbx, MAILBOX_RCV_REC);
 	/* Picking up a packet from HW. */
 	for (i = 0; i < PACKET_SIZE; i++) {
 		while ((mailbox_reg_rd(mbx,
@@ -964,6 +1030,7 @@ static void chan_send_pkt(struct mailbox_channel *ch)
 
 	MBX_DBG(mbx, "sending pkt: type=0x%x", pkt->hdr.type);
 
+	mailbox_dbg_collect(mbx, MAILBOX_SND_REC);
 	/* Pushing a packet into HW. */
 	for (i = 0; i < PACKET_SIZE; i++) {
 		mailbox_reg_wr(mbx, &mbx->mbx_regs->mbr_wrdata,
