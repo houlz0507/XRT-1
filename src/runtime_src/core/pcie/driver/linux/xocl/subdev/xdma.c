@@ -40,6 +40,14 @@ struct xdma_channel_counters {
 	u64			write_data_cycle;
 	u64			read_clock_cycle;
 	u64			read_data_cycle;
+
+	u64			write_intr_count;
+	u64			write_desc_count;
+	u64			write_busy_nsec;
+	u64			read_intr_count;
+	u64			read_desc_count;
+	u64			read_busy_nsec;
+
 };
 #endif
 
@@ -115,16 +123,28 @@ static ssize_t xdma_migrate_bo(struct platform_device *pdev,
 				counts.clock_cycles;
 			xdma->chan_counters[channel].write_data_cycle +=
 				counts.data_cycles;
+			xdma->chan_counters[channel].write_intr_count +=
+				counts.intr_count;
+			xdma->chan_counters[channel].write_desc_count +=
+				counts.desc_count;
+			xdma->chan_counters[channel].write_busy_nsec +=
+				counts.busy_nsec;
 		} else {
 			xdma->chan_counters[channel].read_bytes += ret;
 			xdma->chan_counters[channel].read_nsec +=
 				ktime_get_ns() - ns;
-			xdma_read_perf_counts(xdma->dma_handle, true, channel,
+			xdma_read_perf_counts(xdma->dma_handle, false, channel,
 				&counts);
 			xdma->chan_counters[channel].read_clock_cycle +=
 				counts.clock_cycles;
 			xdma->chan_counters[channel].read_data_cycle +=
 				counts.data_cycles;
+			xdma->chan_counters[channel].read_intr_count +=
+				counts.intr_count;
+			xdma->chan_counters[channel].read_desc_count +=
+				counts.desc_count;
+			xdma->chan_counters[channel].read_busy_nsec +=
+				counts.busy_nsec;
 
 		}
 #endif
@@ -487,6 +507,16 @@ static ssize_t perf_counters_show(struct device *dev,
 			"channel %d read_cycle %lld data_cycle %lld\n",
 			i, xdma->chan_counters[i].read_clock_cycle,
 			xdma->chan_counters[i].read_data_cycle);
+		count += sprintf(buf + count,
+			"channel %d write intr %lld desc %lld busy(ns) %lld\n",
+			i, xdma->chan_counters[i].write_intr_count,
+			xdma->chan_counters[i].write_desc_count,
+			xdma->chan_counters[i].write_busy_nsec);
+		count += sprintf(buf + count,
+			"channel %d read intr %lld desc %lld busy(ns) %lld\n",
+			i, xdma->chan_counters[i].read_intr_count,
+			xdma->chan_counters[i].read_desc_count,
+			xdma->chan_counters[i].read_busy_nsec);
 	}
 
 	memset(xdma->chan_counters, 0,

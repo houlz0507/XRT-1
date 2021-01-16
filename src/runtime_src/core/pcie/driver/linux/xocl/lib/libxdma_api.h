@@ -79,6 +79,10 @@ struct xdma_io_cb {
 struct xdma_perf_counts {
 	u64 clock_cycles;
 	u64 data_cycles;
+
+	u64 intr_count;
+	u64 desc_count;
+	u64 busy_nsec;
 };
 
 /*

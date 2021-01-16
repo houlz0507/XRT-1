@@ -161,9 +161,9 @@
 #define XDMA_DESC_COMPLETED	(1UL << 1)
 #define XDMA_DESC_EOP		(1UL << 4)
 
-#define XDMA_PERF_RUN	(1UL << 0)
+#define XDMA_PERF_RUN	(1UL << 2)
 #define XDMA_PERF_CLEAR	(1UL << 1)
-#define XDMA_PERF_AUTO	(1UL << 2)
+#define XDMA_PERF_AUTO	(1UL << 0)
 
 #define MAGIC_ENGINE	0xEEEEEEEEUL
 #define MAGIC_DEVICE	0xDDDDDDDDUL
@@ -525,6 +525,12 @@ struct xdma_engine {
 	void *perf_buffer;
 	unsigned int perf_size;
 	wait_queue_head_t xdma_perf_wq;	/* Perf test sync */
+
+	bool perf_count_enabled;
+	u64 perf_start_nsec;
+	u64 perf_nsec;
+	u64 perf_intr_count;
+	u64 perf_desc_count;
 
 	/* cpu attached to intr_work */
 	unsigned int intr_work_cpu;

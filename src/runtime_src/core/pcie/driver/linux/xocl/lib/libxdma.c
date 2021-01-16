@@ -287,7 +287,7 @@ void enable_perf(struct xdma_engine *engine)
 			(unsigned long)(&engine->regs->perf_ctrl) -
 			(unsigned long)(&engine->regs));
 	read_register(&engine->regs->identifier);
-	w = XDMA_PERF_AUTO | XDMA_PERF_RUN;
+	w = XDMA_PERF_RUN;
 	write_register(w, &engine->regs->perf_ctrl,
 			(unsigned long)(&engine->regs->perf_ctrl) -
 			(unsigned long)(&engine->regs));
@@ -306,6 +306,11 @@ void xdma_arm_perf_counts(void *dev_hndl, bool write, int channel)
 		&xdev->engine_c2h[channel];
 
 	enable_perf(engine);
+
+	engine->perf_count_enabled = true;
+	engine->perf_intr_count = 0;
+	engine->perf_desc_count = 0;
+	engine->perf_nsec = 0;
 }
 
 void get_perf_stats(struct xdma_engine *engine)
@@ -341,6 +346,7 @@ void xdma_read_perf_counts(void *dev_hndl, bool write, int channel,
 	struct xdma_engine *engine;
 	u32 hi;
 	u32 lo;
+	u32 w;
 
 	engine = write ? &xdev->engine_h2c[channel] :
 		&xdev->engine_c2h[channel];
@@ -355,6 +361,17 @@ void xdma_read_perf_counts(void *dev_hndl, bool write, int channel,
 	lo = read_register(&engine->regs->perf_dat_lo);
 	perf_counts->data_cycles = build_u64(hi, lo);
 
+	perf_counts->intr_count = engine->perf_intr_count;
+	perf_counts->desc_count = engine->perf_desc_count;
+	perf_counts->busy_nsec = engine->perf_nsec;
+
+	engine->perf_count_enabled = false;
+
+	w = XDMA_PERF_CLEAR;
+	write_register(w, &engine->regs->perf_ctrl,
+			(unsigned long)(&engine->regs->perf_ctrl) -
+			(unsigned long)(&engine->regs));
+	read_register(&engine->regs->identifier);
 }
 
 static void engine_reg_dump(struct xdma_engine *engine)
@@ -555,6 +572,9 @@ static int xdma_engine_stop(struct xdma_engine *engine)
 static int engine_start_mode_config(struct xdma_engine *engine)
 {
 	u32 wr;
+
+	if (engine->perf_count_enabled)
+		engine->perf_start_nsec = ktime_get_ns();
 
 	if (!engine) {
 		pr_err("dma engine NULL\n");
@@ -1606,6 +1626,12 @@ loop_again:
 	engine->desc_dequeued += desc_count;
 	engine->desc_queued -= desc_count;
 	spin_unlock(&engine->lock);
+
+	if (engine->perf_count_enabled) {
+		engine->perf_desc_count += desc_count;
+		engine->perf_intr_count += 1;
+		engine->perf_nsec += ktime_get_ns() - engine->perf_start_nsec;
+	}
 
 	/* completions need to be processed before engine shutdown */
 	rv = process_completions(engine, desc_count);
@@ -3902,7 +3928,7 @@ void xdma_device_offline(struct pci_dev *pdev, void *dev_hndl)
 	if (debug_check_dev_hndl(__func__, pdev, dev_hndl) < 0)
 		return;
 
-pr_info("pdev 0x%p, xdev 0x%p.\n", pdev, xdev);
+	pr_info("pdev 0x%p, xdev 0x%p.\n", pdev, xdev);
 	xdma_device_flag_set(xdev, XDEV_FLAG_OFFLINE);
 
 	/* wait for all engines to be idle */
