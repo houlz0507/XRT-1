@@ -135,6 +135,7 @@ static int validate(struct platform_device *pdev, struct client_ctx *client,
 		    const struct drm_xocl_bo *bo);
 static bool exec_is_flush(struct exec_core *exec);
 static void exec_ert_clear_csr(struct exec_core *exec);
+static unsigned long exec_get_dbg_hdl(struct exec_core *exec);
 static void scheduler_wake_up(struct xocl_scheduler *xs);
 static void scheduler_intr(struct xocl_scheduler *xs);
 static void scheduler_decr_poll(struct xocl_scheduler *xs);
@@ -449,10 +450,10 @@ cmd_record_timestamp(struct xocl_cmd *xcmd, enum ert_cmd_state state)
 static inline void
 cmd_set_int_state(struct xocl_cmd *xcmd, enum ert_cmd_state state)
 {
-	SCHED_DEBUGF("-> %s(%lu,%d)\n", __func__, xcmd->uid, state);
+	xocl_trace(exec_get_dbg_hdl(xcmd->exec), "-> %s(%lu,%d)\n", __func__, xcmd->uid, state);
 	cmd_record_timestamp(xcmd, state);
 	xcmd->state = state;
-	SCHED_DEBUGF("<- %s\n", __func__);
+	xocl_trace(exec_get_dbg_hdl(xcmd->exec), "<- %s\n", __func__);
 }
 
 /**
@@ -467,11 +468,11 @@ cmd_set_int_state(struct xocl_cmd *xcmd, enum ert_cmd_state state)
 static inline void
 cmd_set_state(struct xocl_cmd *xcmd, enum ert_cmd_state state)
 {
-	SCHED_DEBUGF("-> %s(%lu,%d)\n", __func__, xcmd->uid, state);
+	xocl_trace(exec_get_dbg_hdl(xcmd->exec), "-> %s(%lu,%d)\n", __func__, xcmd->uid, state);
 	cmd_record_timestamp(xcmd, state);
 	xcmd->state = state;
 	xcmd->ert_pkt->state = state;
-	SCHED_DEBUGF("<- %s\n", __func__);
+	xocl_trace(exec_get_dbg_hdl(xcmd->exec), "<- %s\n", __func__);
 }
 
 /*
@@ -538,7 +539,7 @@ cmd_chain_dependencies(struct xocl_cmd *xcmd)
 	int didx;
 	int dcount = xcmd->wait_count;
 
-	SCHED_DEBUGF("-> chain_dependencies of xcmd(%lu)\n", xcmd->uid);
+	xocl_trace(exec_get_dbg_hdl(xcmd->exec), "-> chain_dependencies of xcmd(%lu)\n", xcmd->uid);
 	for (didx = 0; didx < dcount; ++didx) {
 		struct drm_xocl_bo *dbo = xcmd->deps[didx];
 		struct xocl_cmd *chain_to = dbo->metadata.active;
@@ -556,7 +557,7 @@ cmd_chain_dependencies(struct xocl_cmd *xcmd)
 				   chain_to->uid, chain_to->chain_count, MAX_DEPS);
 			return 1;
 		}
-		SCHED_DEBUGF("+ xcmd(%lu)->chain[%d]=xcmd(%lu)",
+		xocl_trace(exec_get_dbg_hdl(xcmd->exec), "+ xcmd(%lu)->chain[%d]=xcmd(%lu)",
 			     chain_to->uid, chain_to->chain_count, xcmd->uid);
 		chain_to->chain[chain_to->chain_count++] = xcmd;
 	}
@@ -575,11 +576,11 @@ cmd_chain_dependencies(struct xocl_cmd *xcmd)
 static void
 cmd_trigger_chain(struct xocl_cmd *xcmd)
 {
-	SCHED_DEBUGF("-> trigger_chain xcmd(%lu)\n", xcmd->uid);
+	xocl_trace(exec_get_dbg_hdl(xcmd->exec), "-> trigger_chain xcmd(%lu)\n", xcmd->uid);
 	while (xcmd->chain_count) {
 		struct xocl_cmd *trigger = xcmd->chain[--xcmd->chain_count];
 
-		SCHED_DEBUGF("+ cmd(%lu) triggers cmd(%lu) with wait_count(%d)\n",
+		xocl_trace(exec_get_dbg_hdl(xcmd->exec), "+ cmd(%lu) triggers cmd(%lu) with wait_count(%d)\n",
 			     xcmd->uid, trigger->uid, trigger->wait_count);
 		// decrement trigger wait count
 		// scheduler will submit when wait count reaches zero
@@ -627,7 +628,7 @@ cmd_get(struct xocl_scheduler *xs, struct exec_core *exec, struct client_ctx *cl
 	xcmd->wait_count = 0;
 	xcmd->timestamp_enabled = false;
 	atomic_inc(&client->outstanding_execs);
-	SCHED_DEBUGF("xcmd(%lu) xcmd(%p) [-> new ]\n", xcmd->uid, xcmd);
+	xocl_trace(exec_get_dbg_hdl(xcmd->exec), "xcmd(%lu) xcmd(%p) [-> new ]\n", xcmd->uid, xcmd);
 	return xcmd;
 }
 
@@ -639,7 +640,7 @@ cmd_get(struct xocl_scheduler *xs, struct exec_core *exec, struct client_ctx *cl
 static void
 cmd_free(struct xocl_cmd *xcmd)
 {
-	SCHED_DEBUGF("-> %s xcmd(%lu)\n", __func__, xcmd->uid);
+	xocl_trace(exec_get_dbg_hdl(xcmd->exec), "-> %s xcmd(%lu)\n", __func__, xcmd->uid);
 
 	cmd_release_gem_object_reference(xcmd);
 
@@ -647,7 +648,7 @@ cmd_free(struct xocl_cmd *xcmd)
 	list_move_tail(&xcmd->cq_list, &free_cmds);
 	mutex_unlock(&free_cmds_mutex);
 
-	SCHED_DEBUGF("<- %s\n", __func__);
+	xocl_trace(exec_get_dbg_hdl(xcmd->exec), "<- %s\n", __func__);
 }
 
 /**
@@ -667,7 +668,7 @@ cmd_abort(struct xocl_cmd *xcmd)
 	mutex_unlock(&free_cmds_mutex);
 
 	atomic_dec(&xcmd->client->outstanding_execs);
-	SCHED_DEBUGF("xcmd(%lu) [-> abort]\n", xcmd->uid);
+	xocl_trace(exec_get_dbg_hdl(xcmd->exec), "xcmd(%lu) [-> abort]\n", xcmd->uid);
 }
 
 static inline bool
@@ -698,7 +699,7 @@ static void
 cmd_bo_init(struct xocl_cmd *xcmd, struct drm_xocl_bo *bo,
 	    int numdeps, struct drm_xocl_bo **deps, bool penguin)
 {
-	SCHED_DEBUGF("%s(%lu,bo,%d,deps,%d)\n", __func__, xcmd->uid, numdeps, penguin);
+	xocl_trace(exec_get_dbg_hdl(xcmd->exec), "%s(%lu,bo,%d,deps,%d)\n", __func__, xcmd->uid, numdeps, penguin);
 	xcmd->bo = bo;
 	xcmd->ert_pkt = (struct ert_packet *)bo->vmapping;
 
@@ -710,10 +711,10 @@ cmd_bo_init(struct xocl_cmd *xcmd, struct drm_xocl_bo *bo,
 		u32 cumasks[4] = {0};
 
 		cumasks[0] = xcmd->ert_cu->cu_mask;
-		SCHED_DEBUGF("+ xcmd(%lu) cumask[0]=0x%x\n", xcmd->uid, cumasks[0]);
+		xocl_trace(exec_get_dbg_hdl(xcmd->exec), "+ xcmd(%lu) cumask[0]=0x%x\n", xcmd->uid, cumasks[0]);
 		for (i = 0; i < xcmd->ert_cu->extra_cu_masks; ++i) {
 			cumasks[i+1] = xcmd->ert_cu->data[i];
-			SCHED_DEBUGF("+ xcmd(%lu) cumask[%d]=0x%x\n", xcmd->uid, i+1, cumasks[i+1]);
+			xocl_trace(exec_get_dbg_hdl(xcmd->exec), "+ xcmd(%lu) cumask[%d]=0x%x\n", xcmd->uid, i+1, cumasks[i+1]);
 		}
 		xocl_bitmap_from_arr32(xcmd->cu_bitmap, cumasks, MAX_CUS);
 	}
@@ -735,7 +736,7 @@ cmd_bo_init(struct xocl_cmd *xcmd, struct drm_xocl_bo *bo,
 static inline bool
 cmd_has_cu(struct xocl_cmd *xcmd, unsigned int cuidx)
 {
-	SCHED_DEBUGF("%s(%lu,%d) = %d\n", __func__, xcmd->uid, cuidx, test_bit(cuidx, xcmd->cu_bitmap));
+	xocl_trace(exec_get_dbg_hdl(xcmd->exec), "%s(%lu,%d) = %d\n", __func__, xcmd->uid, cuidx, test_bit(cuidx, xcmd->cu_bitmap));
 	return test_bit(cuidx, xcmd->cu_bitmap);
 }
 
@@ -1828,6 +1829,8 @@ struct exec_core {
 	// reserved it when MSB is set.
 	unsigned int		   ip_reference[MAX_CUS];
 	struct workqueue_struct    *completion_wq;
+
+	unsigned long		   dbg_hdl;
 };
 
 /**
@@ -1846,6 +1849,12 @@ static inline struct xocl_dev *
 exec_get_xdev(struct exec_core *exec)
 {
 	return xocl_get_xdev(exec->pdev);
+}
+
+static inline unsigned long
+exec_get_dbg_hdl(struct exec_core *exec)
+{
+	return exec->dbg_hdl;
 }
 
 /**
@@ -2278,9 +2287,16 @@ exec_create(struct platform_device *pdev, struct xocl_scheduler *xs)
 	static unsigned int count;
 	unsigned int i;
 	struct xocl_ert_sched_privdata *priv;
+	int ret;
 
 	if (!exec)
 		return NULL;
+
+	ret = xocl_debug_register(&pdev->dev, NULL, &exec->dbg_hdl);
+	if (ret) {
+		xocl_err(&pdev->dev, "init debug failed %d", ret);
+		return NULL;
+	}
 
 	mutex_init(&exec->exec_lock);
 	exec->base = xdev->core.bar_addr;
@@ -2377,6 +2393,7 @@ exec_destroy(struct exec_core *exec)
 
 	list_del(&exec->core_list);
 
+	xocl_debug_unreg(&exec->pdev->dev);
 	devm_kfree(&exec->pdev->dev, exec);
 }
 

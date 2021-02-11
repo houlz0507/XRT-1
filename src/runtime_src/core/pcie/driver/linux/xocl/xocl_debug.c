@@ -39,6 +39,9 @@ struct xocl_debug {
 	char			*read_head;
 	char			*buffer;
 	u64			buffer_sz;
+	char			*last_char;
+	u64			overrun;
+	char			extra_msg[MAX_TRACE_MSG_LEN];
 };
 
 static struct xocl_debug	xrt_debug = {
@@ -47,6 +50,11 @@ static struct xocl_debug	xrt_debug = {
 
 static int trace_open(struct inode *inode, struct file *file)
 {
+	spin_lock(&xrt_debug.trace_lock);
+	xrt_debug.overrun = 0;
+	xrt_debug.read_head = xrt_debug.trace_head + 1;
+	spin_unlock(&xrt_debug.trace_lock);
+
 	return 0;
 }	
 
@@ -58,7 +66,55 @@ static int trace_release(struct inode *inode, struct file *file)
 static ssize_t trace_read(struct file *file, char __user *buf,
 		size_t sz, loff_t *ppos)
 {
-	return 0;
+	ssize_t count = 0, len;
+
+	spin_lock(&xrt_debug.trace_lock);
+	if (xrt_debug.overrun > 0) {
+		count += snprintf(xrt_debug.extra_msg, MAX_TRACE_MSG_LEN,
+				"message overrun %lld\n", xrt_debug.overrun);
+		count = min((size_t)count, sz);
+		if (copy_to_user(buf, xrt_debug.extra_msg, count) != 0) {
+			count = -EFAULT;
+			goto out;
+		}
+		xrt_debug.overrun = 0;
+	}
+
+	len = sz - count;
+	if (!len)
+		goto out;
+
+	if (xrt_debug.read_head > xrt_debug.trace_head) {
+		len = min(len, xrt_debug.last_char - xrt_debug.read_head);
+		if (copy_to_user(buf + count, xrt_debug.read_head, len) != 0) {
+			count = -EFAULT;
+			goto out;
+		}
+		count += len;
+		xrt_debug.read_head += len;
+		if (xrt_debug.read_head == xrt_debug.last_char)
+			xrt_debug.read_head = xrt_debug.buffer;
+	}
+
+	len = sz - count;
+	if (!len)
+		goto out;
+
+	if (xrt_debug.read_head < xrt_debug.trace_head) {
+		len = min(len, xrt_debug.trace_head - xrt_debug.read_head);
+		if (copy_to_user(buf + count, xrt_debug.read_head, len) != 0) {
+			count = -EFAULT;
+			goto out;
+		}
+		count += len;
+		xrt_debug.read_head += len;
+	}
+
+out:
+		
+	spin_unlock(&xrt_debug.trace_lock);
+
+	return count;
 }
 
 static const struct file_operations trace_fops = {
@@ -165,6 +221,7 @@ void xocl_trace(unsigned long hdl, const char *fmt, ...)
 	unsigned long flags, nsec;
 	char *endp;
 	u64 ts;
+	bool before;
 
 	ts = local_clock();
 	nsec = do_div(ts, 1000000000);
@@ -178,13 +235,30 @@ void xocl_trace(unsigned long hdl, const char *fmt, ...)
 	endp = xrt_debug.buffer + xrt_debug.buffer_sz;
 	if (endp - xrt_debug.trace_head < MAX_TRACE_MSG_LEN) {
 		if (xrt_debug.trace_head < endp) 
-			*xrt_debug.trace_head = 0;
+			xrt_debug.last_char = xrt_debug.trace_head;
+		if (xrt_debug.trace_head <= xrt_debug.read_head)
+			xrt_debug.read_head = xrt_debug.buffer;
+		
+
 		xrt_debug.trace_head = xrt_debug.buffer;
 	}
+	
+	if (xrt_debug.trace_head <= xrt_debug.read_head)
+		before = true;
 
 	xrt_debug.trace_head += snprintf(xrt_debug.trace_head, MAX_TRACE_MSG_LEN,
 			"[%5lu.%06lu]%s: %pV", (unsigned long)ts, nsec / 1000,
 			mod->name ? mod->name : dev_name(mod->dev), &vaf);
+	if (xrt_debug.trace_head == endp)
+		xrt_debug.trace_head = xrt_debug.buffer;
+
+	if (before && xrt_debug.trace_head > xrt_debug.read_head) {
+		xrt_debug.overrun += xrt_debug.trace_head - xrt_debug.read_head;
+		xrt_debug.read_head = xrt_debug.trace_head;
+	}
+
+	if (xrt_debug.trace_head > xrt_debug.last_char)
+		xrt_debug.last_char = xrt_debug.trace_head;
 
 	spin_unlock_irqrestore(&xrt_debug.trace_lock, flags);
 	va_end(args);

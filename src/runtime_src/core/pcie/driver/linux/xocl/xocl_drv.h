@@ -2119,6 +2119,13 @@ const void *xocl_fdt_getprop(xdev_handle_t xdev_hdl, void *blob, int off,
 int xocl_fdt_unblock_ip(xdev_handle_t xdev_hdl, void *blob);
 const char *xocl_fdt_get_ert_fw_ver(xdev_handle_t xdev_hdl, void *blob);
 
+/* debug functions */
+int xocl_debug_init(void);
+void xocl_debug_fini(void);
+int xocl_debug_register(struct device *dev, const char *name, unsigned long *hdl);
+int xocl_debug_unreg(struct device *dev);
+void xocl_trace(unsigned long hdl, const char *fmt, ...);
+
 /* init functions */
 int __init xocl_init_userpf(void);
 void xocl_fini_fini_userpf(void);
