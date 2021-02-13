@@ -18,6 +18,9 @@
 #include <linux/debugfs.h>
 #include <linux/list.h>
 #include "xocl_drv.h"
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
+#include <linux/sched/clock.h>
+#endif
 
 #define MAX_TRACE_MSG_LEN	512
 #define XOCL_DEBUGFS_LOGFILE	"trace"
@@ -37,6 +40,7 @@ struct xocl_debug {
 	spinlock_t		trace_lock;
 	char			*trace_head;
 	char			*read_head;
+	bool			read_all;
 	char			*buffer;
 	u64			buffer_sz;
 	char			*last_char;
@@ -52,7 +56,7 @@ static int trace_open(struct inode *inode, struct file *file)
 {
 	spin_lock(&xrt_debug.trace_lock);
 	xrt_debug.overrun = 0;
-	xrt_debug.read_head = xrt_debug.trace_head + 1;
+	xrt_debug.read_head = xrt_debug.trace_head;
 	spin_unlock(&xrt_debug.trace_lock);
 
 	return 0;
@@ -66,9 +70,13 @@ static int trace_release(struct inode *inode, struct file *file)
 static ssize_t trace_read(struct file *file, char __user *buf,
 		size_t sz, loff_t *ppos)
 {
-	ssize_t count = 0, len;
+	ssize_t count = 0;
+	size_t len;
 
 	spin_lock(&xrt_debug.trace_lock);
+	if (xrt_debug.read_all)
+		goto out;
+
 	if (xrt_debug.overrun > 0) {
 		count += snprintf(xrt_debug.extra_msg, MAX_TRACE_MSG_LEN,
 				"message overrun %lld\n", xrt_debug.overrun);
@@ -84,9 +92,9 @@ static ssize_t trace_read(struct file *file, char __user *buf,
 	if (!len)
 		goto out;
 
-	if (xrt_debug.read_head > xrt_debug.trace_head) {
+	if (xrt_debug.read_head >= xrt_debug.trace_head) {
 		len = min(len, xrt_debug.last_char - xrt_debug.read_head);
-		if (copy_to_user(buf + count, xrt_debug.read_head, len) != 0) {
+		if (len && copy_to_user(buf + count, xrt_debug.read_head, len) != 0) {
 			count = -EFAULT;
 			goto out;
 		}
@@ -102,17 +110,21 @@ static ssize_t trace_read(struct file *file, char __user *buf,
 
 	if (xrt_debug.read_head < xrt_debug.trace_head) {
 		len = min(len, xrt_debug.trace_head - xrt_debug.read_head);
-		if (copy_to_user(buf + count, xrt_debug.read_head, len) != 0) {
+		if (len && copy_to_user(buf + count, xrt_debug.read_head, len) != 0) {
 			count = -EFAULT;
 			goto out;
 		}
 		count += len;
 		xrt_debug.read_head += len;
+		if (xrt_debug.read_head == xrt_debug.trace_head)
+			xrt_debug.read_all = true;
 	}
 
 out:
 		
 	spin_unlock(&xrt_debug.trace_lock);
+
+	*ppos += count;
 
 	return count;
 }
@@ -132,6 +144,8 @@ int xocl_debug_init(void)
 		return -ENOMEM;
 	xrt_debug.trace_head = xrt_debug.buffer;
 	xrt_debug.read_head = xrt_debug.buffer;
+	xrt_debug.last_char = xrt_debug.buffer;
+	xrt_debug.read_all = true;
 
 	xrt_debug.debugfs_root = debugfs_create_dir(KBUILD_MODNAME, NULL);
 	if (IS_ERR(xrt_debug.debugfs_root)) {
@@ -260,6 +274,7 @@ void xocl_trace(unsigned long hdl, const char *fmt, ...)
 	if (xrt_debug.trace_head > xrt_debug.last_char)
 		xrt_debug.last_char = xrt_debug.trace_head;
 
+	xrt_debug.read_all = false;
 	spin_unlock_irqrestore(&xrt_debug.trace_lock, flags);
 	va_end(args);
 }
