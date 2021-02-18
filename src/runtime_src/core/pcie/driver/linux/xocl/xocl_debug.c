@@ -22,13 +22,38 @@
 #include <linux/sched/clock.h>
 #endif
 
+char *xrt_debug_modules;
+module_param(xrt_debug_modules, charp, (S_IRUGO|S_IWUSR));
+MODULE_PARM_DESC(xrt_debug_modules, "Debug modules");
+
+int xrt_debug_bufsize;
+module_param(xrt_debug_bufsize, int, (S_IRUGO|S_IWUSR));
+MODULE_PARM_DESC(xrt_debug_bufsize, "Debug buffer size");
+
 #define MAX_TRACE_MSG_LEN	512
-#define XOCL_DEBUGFS_LOGFILE	"trace"
+
+#define XOCL_DFS_TRACE		"trace"
+#define XOCL_DFS_TRACE_MOD	"trace_modules"
+#define XOCL_DFS_TRACE_CTRL	"trace_control"
+
+enum {
+	XOCL_DFS_TYPE_TRACE,
+	XOCL_DFS_TYPE_COUNT,
+	XOCL_DFS_TYPE_IO_TRACK,
+};
 
 struct xrt_debug_mod {
 	struct list_head	link;
+	bool			enabled;
 	struct device		*dev;
 	const char		*name;
+	int			mod_type;
+
+	/* counter */
+	u64			start_ts;
+	u64			total_time;
+	u64			total_count;
+	bool			trace_count;
 };
 
 struct xocl_debug {
@@ -38,6 +63,7 @@ struct xocl_debug {
 
 	/* global trace */
 	spinlock_t		trace_lock;
+	wait_queue_head_t	trace_wq;
 	char			*trace_head;
 	char			*read_head;
 	bool			read_all;
@@ -64,6 +90,10 @@ static int trace_open(struct inode *inode, struct file *file)
 
 static int trace_release(struct inode *inode, struct file *file)
 {
+	spin_lock(&xrt_debug.trace_lock);
+	xrt_debug.read_all = false;
+	spin_unlock(&xrt_debug.trace_lock);
+
 	return 0;
 }
 
@@ -73,18 +103,13 @@ static ssize_t trace_read(struct file *file, char __user *buf,
 	ssize_t count = 0;
 	size_t len;
 
+	if (wait_event_interruptible(xrt_debug.trace_wq, (!xrt_debug.read_all)) == -ERESTARTSYS)
+		return -ERESTARTSYS;
+
 	spin_lock(&xrt_debug.trace_lock);
-	if (xrt_debug.read_all)
-		goto out;
 
 	if (xrt_debug.overrun > 0) {
-		count += snprintf(xrt_debug.extra_msg, MAX_TRACE_MSG_LEN,
-				"message overrun %lld\n", xrt_debug.overrun);
-		count = min((size_t)count, sz);
-		if (copy_to_user(buf, xrt_debug.extra_msg, count) != 0) {
-			count = -EFAULT;
-			goto out;
-		}
+		pr_info("message overrun %lld\n", xrt_debug.overrun);
 		xrt_debug.overrun = 0;
 	}
 
@@ -93,7 +118,7 @@ static ssize_t trace_read(struct file *file, char __user *buf,
 		goto out;
 
 	if (xrt_debug.read_head >= xrt_debug.trace_head) {
-		len = min(len, xrt_debug.last_char - xrt_debug.read_head);
+		len = min(len, (size_t)(xrt_debug.last_char - xrt_debug.read_head));
 		if (len && copy_to_user(buf + count, xrt_debug.read_head, len) != 0) {
 			count = -EFAULT;
 			goto out;
@@ -109,7 +134,7 @@ static ssize_t trace_read(struct file *file, char __user *buf,
 		goto out;
 
 	if (xrt_debug.read_head < xrt_debug.trace_head) {
-		len = min(len, xrt_debug.trace_head - xrt_debug.read_head);
+		len = min(len, (size_t)(xrt_debug.trace_head - xrt_debug.read_head));
 		if (len && copy_to_user(buf + count, xrt_debug.read_head, len) != 0) {
 			count = -EFAULT;
 			goto out;
@@ -124,7 +149,7 @@ out:
 		
 	spin_unlock(&xrt_debug.trace_lock);
 
-	*ppos += count;
+	*ppos += count > 0 ? count : 0;
 
 	return count;
 }
@@ -137,8 +162,65 @@ static const struct file_operations trace_fops = {
 	.llseek = no_llseek,
 };
 
+static ssize_t trace_mod_read(struct file *file, char __user *buf,
+		size_t sz, loff_t *ppos)
+{
+	struct xrt_debug_mod	*mod;
+	ssize_t count = 0;
+	loff_t offset = *ppos, len;
+	char temp[20];
+
+	mutex_lock(&xrt_debug.mod_lock);
+	list_for_each_entry(mod, &xrt_debug.mod_list, link) {
+		sprintf(temp, "\tenabled: %d\n", mod->enabled);
+		len = strlen(mod->name) + strlen(temp);
+
+		if (offset >= len) {
+			offset -= len ;
+			continue;
+		}
+		if (count + len > sz)
+			break;
+		if (copy_to_user(buf + count, mod->name, strlen(mod->name)) != 0) {
+			count = -EFAULT;
+			goto out;
+		}
+		count += strlen(mod->name);
+		if (copy_to_user(buf + count, temp, strlen(temp)) != 0) {
+			count = -EFAULT;
+			goto out;
+		}
+		count += strlen(temp);
+	}
+out:
+	mutex_unlock(&xrt_debug.mod_lock);
+
+	*ppos += count > 0 ? count : 0;
+
+	return count;
+}
+
+static const struct file_operations trace_mod_fops = {
+	.owner = THIS_MODULE,
+	.read = trace_mod_read,
+};
+
+static ssize_t trace_ctrl_write(struct file *filp, const char __user *data,
+		size_t data_len, loff_t *ppos)
+{
+	return 0;
+}
+
+static const struct file_operations trace_ctrl_fops = {
+	.owner = THIS_MODULE,
+	.write = trace_ctrl_write,
+};
+
 int xocl_debug_init(void)
 {
+	if (xrt_debug_bufsize > 0)
+		xrt_debug.buffer_sz = xrt_debug_bufsize;
+
 	xrt_debug.buffer = vzalloc(xrt_debug.buffer_sz);
 	if (!xrt_debug.buffer)
 		return -ENOMEM;
@@ -153,10 +235,17 @@ int xocl_debug_init(void)
 		return PTR_ERR(xrt_debug.debugfs_root);
 	}
 
-	debugfs_create_file(XOCL_DEBUGFS_LOGFILE, 0444,
+	debugfs_create_file(XOCL_DFS_TRACE, 0444,
 		xrt_debug.debugfs_root, NULL, &trace_fops);
 
+	debugfs_create_file(XOCL_DFS_TRACE_MOD, 0444,
+		xrt_debug.debugfs_root, NULL, &trace_mod_fops);
+
+	debugfs_create_file(XOCL_DFS_TRACE_CTRL, 0200,
+		xrt_debug.debugfs_root, NULL, &trace_ctrl_fops);
+
 	spin_lock_init(&xrt_debug.trace_lock);
+	init_waitqueue_head(&xrt_debug.trace_wq);
 	INIT_LIST_HEAD(&xrt_debug.mod_list);
 	mutex_init(&xrt_debug.mod_lock);
 
@@ -176,14 +265,14 @@ void xocl_debug_fini(void)
 	mutex_destroy(&xrt_debug.mod_lock);
 }
 
-int xocl_debug_unreg(struct device *dev)
+int xocl_debug_unreg(unsigned long hdl)
 {
 	struct xrt_debug_mod	*mod, *temp;
 	int ret = -ENOENT;
 
 	mutex_lock(&xrt_debug.mod_lock);
 	list_for_each_entry_safe(mod, temp, &xrt_debug.mod_list, link) {
-		if (mod->dev != dev)
+		if ((unsigned long)mod != hdl)
 			continue;
 
 		ret = 0;
@@ -192,6 +281,8 @@ int xocl_debug_unreg(struct device *dev)
 	}
 	mutex_unlock(&xrt_debug.mod_lock);
 
+	if (ret)
+		pr_err("not found");
 	return ret;
 }
 
@@ -202,8 +293,14 @@ int xocl_debug_register(struct device *dev, const char *name, unsigned long *hdl
 
 	*hdl = 0;
 	mutex_lock(&xrt_debug.mod_lock);
+	name = name ? name : dev_name(dev);
+	if (!name) {
+		pr_err("invalid arguments");
+		ret = -EINVAL;
+		goto out;
+	}
 	list_for_each_entry(mod, &xrt_debug.mod_list, link) {
-		if (mod->dev == dev) {
+		if (!strncmp(mod->name, name, strlen(mod->name) + 1)) {
 			xocl_err(dev, "already registed");
 			ret = -EEXIST;
 			goto out;
@@ -216,8 +313,10 @@ int xocl_debug_register(struct device *dev, const char *name, unsigned long *hdl
 		goto out;
 	}
 
-	mod->name = name ? name : dev_name(dev);
+	mod->name = name;
 	mod->dev = dev;
+	if (xrt_debug_modules && strstr(xrt_debug_modules, name))
+		mod->enabled = true;
 
 	list_add(&mod->link, &xrt_debug.mod_list);
 	*hdl = (unsigned long)mod;
@@ -227,7 +326,7 @@ out:
 	return ret;
 }
 
-void xocl_trace(unsigned long hdl, const char *fmt, ...)
+void xocl_dbg_trace(unsigned long hdl, const char *fmt, ...)
 {
 	struct xrt_debug_mod *mod = (struct xrt_debug_mod *)hdl;
 	struct va_format vaf;
@@ -235,7 +334,10 @@ void xocl_trace(unsigned long hdl, const char *fmt, ...)
 	unsigned long flags, nsec;
 	char *endp;
 	u64 ts;
-	bool before;
+	bool before = false;
+
+	if (!mod->enabled)
+		return;
 
 	ts = local_clock();
 	nsec = do_div(ts, 1000000000);
@@ -248,8 +350,8 @@ void xocl_trace(unsigned long hdl, const char *fmt, ...)
 
 	endp = xrt_debug.buffer + xrt_debug.buffer_sz;
 	if (endp - xrt_debug.trace_head < MAX_TRACE_MSG_LEN) {
-		if (xrt_debug.trace_head < endp) 
-			xrt_debug.last_char = xrt_debug.trace_head;
+		xrt_debug.last_char = xrt_debug.trace_head;
+
 		if (xrt_debug.trace_head <= xrt_debug.read_head)
 			xrt_debug.read_head = xrt_debug.buffer;
 		
@@ -257,16 +359,14 @@ void xocl_trace(unsigned long hdl, const char *fmt, ...)
 		xrt_debug.trace_head = xrt_debug.buffer;
 	}
 	
-	if (xrt_debug.trace_head <= xrt_debug.read_head)
+	if (xrt_debug.trace_head < xrt_debug.read_head)
 		before = true;
 
 	xrt_debug.trace_head += snprintf(xrt_debug.trace_head, MAX_TRACE_MSG_LEN,
 			"[%5lu.%06lu]%s: %pV", (unsigned long)ts, nsec / 1000,
-			mod->name ? mod->name : dev_name(mod->dev), &vaf);
-	if (xrt_debug.trace_head == endp)
-		xrt_debug.trace_head = xrt_debug.buffer;
+			mod->name, &vaf);
 
-	if (before && xrt_debug.trace_head > xrt_debug.read_head) {
+	if (before && xrt_debug.trace_head >= xrt_debug.read_head) {
 		xrt_debug.overrun += xrt_debug.trace_head - xrt_debug.read_head;
 		xrt_debug.read_head = xrt_debug.trace_head;
 	}
@@ -277,4 +377,6 @@ void xocl_trace(unsigned long hdl, const char *fmt, ...)
 	xrt_debug.read_all = false;
 	spin_unlock_irqrestore(&xrt_debug.trace_lock, flags);
 	va_end(args);
+
+	wake_up_interruptible(&xrt_debug.trace_wq);
 }

@@ -87,6 +87,8 @@ extern int kds_mode;
 		DRM_INFO("packet(0x%p) data[%d] = 0x%x\n", data, i, data[i]); \
 })
 
+unsigned long debug_hdl;
+
 #ifdef SCHED_VERBOSE
 # define SCHED_DEBUG(msg) DRM_INFO(msg)
 # define SCHED_DEBUGF(format, ...) DRM_INFO(format, ##__VA_ARGS__)
@@ -94,8 +96,8 @@ extern int kds_mode;
 # define SCHED_DEBUG_PACKET(packet, size) sched_debug_packet(packet, size)
 # define SCHED_PRINT_PACKET(packet, size) sched_debug_packet(packet, size)
 #else
-# define SCHED_DEBUG(msg)
-# define SCHED_DEBUGF(format, ...)
+# define SCHED_DEBUG(msg) xocl_dbg_trace(debug_hdl, msg)
+# define SCHED_DEBUGF(format, ...) xocl_dbg_trace(debug_hdl, format, ##__VA_ARGS__)
 # define SCHED_PRINTF(format, ...) DRM_INFO(format, ##__VA_ARGS__)
 # define SCHED_DEBUG_PACKET(packet, size)
 # define SCHED_PRINT_PACKET(packet, size) sched_debug_packet(packet, size)
@@ -450,10 +452,10 @@ cmd_record_timestamp(struct xocl_cmd *xcmd, enum ert_cmd_state state)
 static inline void
 cmd_set_int_state(struct xocl_cmd *xcmd, enum ert_cmd_state state)
 {
-	xocl_trace(exec_get_dbg_hdl(xcmd->exec), "-> %s(%lu,%d)\n", __func__, xcmd->uid, state);
+	SCHED_DEBUGF("-> %s(%lu,%d)\n", __func__, xcmd->uid, state);
 	cmd_record_timestamp(xcmd, state);
 	xcmd->state = state;
-	xocl_trace(exec_get_dbg_hdl(xcmd->exec), "<- %s\n", __func__);
+	SCHED_DEBUGF("<- %s\n", __func__);
 }
 
 /**
@@ -468,11 +470,11 @@ cmd_set_int_state(struct xocl_cmd *xcmd, enum ert_cmd_state state)
 static inline void
 cmd_set_state(struct xocl_cmd *xcmd, enum ert_cmd_state state)
 {
-	xocl_trace(exec_get_dbg_hdl(xcmd->exec), "-> %s(%lu,%d)\n", __func__, xcmd->uid, state);
+	SCHED_DEBUGF("-> %s(%lu,%d)\n", __func__, xcmd->uid, state);
 	cmd_record_timestamp(xcmd, state);
 	xcmd->state = state;
 	xcmd->ert_pkt->state = state;
-	xocl_trace(exec_get_dbg_hdl(xcmd->exec), "<- %s\n", __func__);
+	SCHED_DEBUGF("<- %s\n", __func__);
 }
 
 /*
@@ -539,7 +541,7 @@ cmd_chain_dependencies(struct xocl_cmd *xcmd)
 	int didx;
 	int dcount = xcmd->wait_count;
 
-	xocl_trace(exec_get_dbg_hdl(xcmd->exec), "-> chain_dependencies of xcmd(%lu)\n", xcmd->uid);
+	SCHED_DEBUGF("-> chain_dependencies of xcmd(%lu)\n", xcmd->uid);
 	for (didx = 0; didx < dcount; ++didx) {
 		struct drm_xocl_bo *dbo = xcmd->deps[didx];
 		struct xocl_cmd *chain_to = dbo->metadata.active;
@@ -557,7 +559,7 @@ cmd_chain_dependencies(struct xocl_cmd *xcmd)
 				   chain_to->uid, chain_to->chain_count, MAX_DEPS);
 			return 1;
 		}
-		xocl_trace(exec_get_dbg_hdl(xcmd->exec), "+ xcmd(%lu)->chain[%d]=xcmd(%lu)",
+		SCHED_DEBUGF("+ xcmd(%lu)->chain[%d]=xcmd(%lu)",
 			     chain_to->uid, chain_to->chain_count, xcmd->uid);
 		chain_to->chain[chain_to->chain_count++] = xcmd;
 	}
@@ -576,11 +578,11 @@ cmd_chain_dependencies(struct xocl_cmd *xcmd)
 static void
 cmd_trigger_chain(struct xocl_cmd *xcmd)
 {
-	xocl_trace(exec_get_dbg_hdl(xcmd->exec), "-> trigger_chain xcmd(%lu)\n", xcmd->uid);
+	SCHED_DEBUGF("-> trigger_chain xcmd(%lu)\n", xcmd->uid);
 	while (xcmd->chain_count) {
 		struct xocl_cmd *trigger = xcmd->chain[--xcmd->chain_count];
 
-		xocl_trace(exec_get_dbg_hdl(xcmd->exec), "+ cmd(%lu) triggers cmd(%lu) with wait_count(%d)\n",
+		SCHED_DEBUGF("+ cmd(%lu) triggers cmd(%lu) with wait_count(%d)\n",
 			     xcmd->uid, trigger->uid, trigger->wait_count);
 		// decrement trigger wait count
 		// scheduler will submit when wait count reaches zero
@@ -628,7 +630,7 @@ cmd_get(struct xocl_scheduler *xs, struct exec_core *exec, struct client_ctx *cl
 	xcmd->wait_count = 0;
 	xcmd->timestamp_enabled = false;
 	atomic_inc(&client->outstanding_execs);
-	xocl_trace(exec_get_dbg_hdl(xcmd->exec), "xcmd(%lu) xcmd(%p) [-> new ]\n", xcmd->uid, xcmd);
+	SCHED_DEBUGF("xcmd(%lu) xcmd(%p) [-> new ]\n", xcmd->uid, xcmd);
 	return xcmd;
 }
 
@@ -640,7 +642,7 @@ cmd_get(struct xocl_scheduler *xs, struct exec_core *exec, struct client_ctx *cl
 static void
 cmd_free(struct xocl_cmd *xcmd)
 {
-	xocl_trace(exec_get_dbg_hdl(xcmd->exec), "-> %s xcmd(%lu)\n", __func__, xcmd->uid);
+	SCHED_DEBUGF("-> %s xcmd(%lu)\n", __func__, xcmd->uid);
 
 	cmd_release_gem_object_reference(xcmd);
 
@@ -648,7 +650,7 @@ cmd_free(struct xocl_cmd *xcmd)
 	list_move_tail(&xcmd->cq_list, &free_cmds);
 	mutex_unlock(&free_cmds_mutex);
 
-	xocl_trace(exec_get_dbg_hdl(xcmd->exec), "<- %s\n", __func__);
+	SCHED_DEBUGF("<- %s\n", __func__);
 }
 
 /**
@@ -668,7 +670,7 @@ cmd_abort(struct xocl_cmd *xcmd)
 	mutex_unlock(&free_cmds_mutex);
 
 	atomic_dec(&xcmd->client->outstanding_execs);
-	xocl_trace(exec_get_dbg_hdl(xcmd->exec), "xcmd(%lu) [-> abort]\n", xcmd->uid);
+	SCHED_DEBUGF("xcmd(%lu) [-> abort]\n", xcmd->uid);
 }
 
 static inline bool
@@ -699,7 +701,7 @@ static void
 cmd_bo_init(struct xocl_cmd *xcmd, struct drm_xocl_bo *bo,
 	    int numdeps, struct drm_xocl_bo **deps, bool penguin)
 {
-	xocl_trace(exec_get_dbg_hdl(xcmd->exec), "%s(%lu,bo,%d,deps,%d)\n", __func__, xcmd->uid, numdeps, penguin);
+	SCHED_DEBUGF("%s(%lu,bo,%d,deps,%d)\n", __func__, xcmd->uid, numdeps, penguin);
 	xcmd->bo = bo;
 	xcmd->ert_pkt = (struct ert_packet *)bo->vmapping;
 
@@ -711,10 +713,10 @@ cmd_bo_init(struct xocl_cmd *xcmd, struct drm_xocl_bo *bo,
 		u32 cumasks[4] = {0};
 
 		cumasks[0] = xcmd->ert_cu->cu_mask;
-		xocl_trace(exec_get_dbg_hdl(xcmd->exec), "+ xcmd(%lu) cumask[0]=0x%x\n", xcmd->uid, cumasks[0]);
+		SCHED_DEBUGF("+ xcmd(%lu) cumask[0]=0x%x\n", xcmd->uid, cumasks[0]);
 		for (i = 0; i < xcmd->ert_cu->extra_cu_masks; ++i) {
 			cumasks[i+1] = xcmd->ert_cu->data[i];
-			xocl_trace(exec_get_dbg_hdl(xcmd->exec), "+ xcmd(%lu) cumask[%d]=0x%x\n", xcmd->uid, i+1, cumasks[i+1]);
+			SCHED_DEBUGF("+ xcmd(%lu) cumask[%d]=0x%x\n", xcmd->uid, i+1, cumasks[i+1]);
 		}
 		xocl_bitmap_from_arr32(xcmd->cu_bitmap, cumasks, MAX_CUS);
 	}
@@ -736,7 +738,7 @@ cmd_bo_init(struct xocl_cmd *xcmd, struct drm_xocl_bo *bo,
 static inline bool
 cmd_has_cu(struct xocl_cmd *xcmd, unsigned int cuidx)
 {
-	xocl_trace(exec_get_dbg_hdl(xcmd->exec), "%s(%lu,%d) = %d\n", __func__, xcmd->uid, cuidx, test_bit(cuidx, xcmd->cu_bitmap));
+	SCHED_DEBUGF("%s(%lu,%d) = %d\n", __func__, xcmd->uid, cuidx, test_bit(cuidx, xcmd->cu_bitmap));
 	return test_bit(cuidx, xcmd->cu_bitmap);
 }
 
@@ -2235,7 +2237,7 @@ static irqreturn_t
 versal_isr(void *arg)
 {
 	struct exec_core *exec = (struct exec_core *)arg;
-	SCHED_DEBUGF("-> %s %d\n", __func__, irq);
+	SCHED_DEBUGF("-> %s\n", __func__);
 
 	if (exec) {
 		if (!exec->polling_mode)
@@ -2287,16 +2289,9 @@ exec_create(struct platform_device *pdev, struct xocl_scheduler *xs)
 	static unsigned int count;
 	unsigned int i;
 	struct xocl_ert_sched_privdata *priv;
-	int ret;
 
 	if (!exec)
 		return NULL;
-
-	ret = xocl_debug_register(&pdev->dev, NULL, &exec->dbg_hdl);
-	if (ret) {
-		xocl_err(&pdev->dev, "init debug failed %d", ret);
-		return NULL;
-	}
 
 	mutex_init(&exec->exec_lock);
 	exec->base = xdev->core.bar_addr;
@@ -2393,7 +2388,6 @@ exec_destroy(struct exec_core *exec)
 
 	list_del(&exec->core_list);
 
-	xocl_debug_unreg(&exec->pdev->dev);
 	devm_kfree(&exec->pdev->dev, exec);
 }
 
@@ -3862,12 +3856,12 @@ static void client_release_implicit_cus(struct exec_core *exec,
 {
 	int i;
 
-	SCHED_DEBUGF("-> %s", __func__);
+	SCHED_DEBUGF("-> %s\n", __func__);
 	for (i = exec->num_cus - exec->num_cdma; i < exec->num_cus; i++) {
 		SCHED_DEBUGF("+ cu(%d)", i);
 		clear_bit(i, client->cu_bitmap);
 	}
-	SCHED_DEBUGF("<- %s", __func__);
+	SCHED_DEBUGF("<- %s\n", __func__);
 }
 
 static void
@@ -5098,6 +5092,7 @@ static struct platform_driver	mb_scheduler_driver = {
 
 int __init xocl_init_mb_scheduler(void)
 {
+	xocl_debug_register(NULL, XOCL_DEVNAME(XOCL_MB_SCHEDULER), &debug_hdl);
 	return platform_driver_register(&mb_scheduler_driver);
 }
 
@@ -5106,4 +5101,6 @@ void xocl_fini_mb_scheduler(void)
 	SCHED_DEBUGF("-> %s\n", __func__);
 	platform_driver_unregister(&mb_scheduler_driver);
 	SCHED_DEBUGF("<- %s\n", __func__);
+
+	xocl_debug_unreg(debug_hdl);
 }

@@ -1072,8 +1072,6 @@ void xocl_userpf_remove(struct pci_dev *pdev)
 		vfree(xdev->ulp_blob);
 	mutex_destroy(&xdev->dev_lock);
 
-	xocl_debug_fini();
-
 	pci_set_drvdata(pdev, NULL);
 	xocl_drvinst_free(hdl);
 }
@@ -1546,12 +1544,6 @@ int xocl_userpf_probe(struct pci_dev *pdev,
 	atomic_set(&xdev->outstanding_execs, 0);
 	INIT_LIST_HEAD(&xdev->ctx_list);
 
-	ret = xocl_debug_init();
-	if (ret) {
-		xocl_err(&pdev->dev, "failed to init debug");
-		goto failed;
-	}
-
 	ret = xocl_subdev_init(xdev, pdev, &userpf_pci_ops);
 	if (ret) {
 		xocl_err(&pdev->dev, "failed to failed to init subdev");
@@ -1795,6 +1787,12 @@ static int __init xocl_init(void)
 		goto err_class_create;
 	}
 
+	ret = xocl_debug_init();
+	if (ret) {
+		pr_err("failed to init debug");
+		goto failed;
+	}
+
 	for (i = 0; i < ARRAY_SIZE(xocl_drv_reg_funcs); ++i) {
 		ret = xocl_drv_reg_funcs[i]();
 		if (ret)
@@ -1824,6 +1822,8 @@ static void __exit xocl_exit(void)
 
 	for (i = ARRAY_SIZE(xocl_drv_unreg_funcs) - 1; i >= 0; i--)
 		xocl_drv_unreg_funcs[i]();
+
+	xocl_debug_fini();
 
 	class_destroy(xrt_class);
 }
