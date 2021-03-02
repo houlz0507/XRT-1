@@ -161,9 +161,9 @@
 #define XDMA_DESC_COMPLETED	(1UL << 1)
 #define XDMA_DESC_EOP		(1UL << 4)
 
-#define XDMA_PERF_RUN	(1UL << 0)
+#define XDMA_PERF_RUN	(1UL << 2)
 #define XDMA_PERF_CLEAR	(1UL << 1)
-#define XDMA_PERF_AUTO	(1UL << 2)
+#define XDMA_PERF_AUTO	(1UL << 0)
 
 #define MAGIC_ENGINE	0xEEEEEEEEUL
 #define MAGIC_DEVICE	0xDDDDDDDDUL

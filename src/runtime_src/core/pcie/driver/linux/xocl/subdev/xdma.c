@@ -27,12 +27,42 @@
 #define VM_RESERVED (VM_DONTEXPAND | VM_DONTDUMP)
 #endif
 
+struct xdma_hw_count {
+	const char		*name;
+	u32			channel;
+	u32			write;
+	u32			type;
+};
+
 struct xdma_irq {
 	struct eventfd_ctx	*event_ctx;
 	bool			in_use;
 	bool			enabled;
 	irq_handler_t		handler;
 	void			*arg;
+};
+
+enum xdma_perf_counts {
+	XDMA_H2C_CLK_CYCLE_CH0 = 0,
+	XDMA_H2C_CLK_CYCLE_CH1,
+	XDMA_COUNT_NUM
+};
+
+#define PERF_COUNT_MASK		0x3ffffffffff
+
+static struct xdma_hw_count hw_counts[XDMA_COUNT_NUM] = {
+	{
+		.name = "xdma_h2c_clk_cycle_ch0",
+		.channel = 0,
+		.write = 1,
+		.type = XDMA_COUNT_CLOCK_CYCLE,
+	},
+	{
+		.name = "xdma_h2c_clk_cycle_ch1",
+		.channel = 1,
+		.write = 1,
+		.type = XDMA_COUNT_CLOCK_CYCLE,
+	}
 };
 
 struct xocl_xdma {
@@ -55,7 +85,63 @@ struct xocl_xdma {
 	unsigned long long	*channel_usage[2];
 
 	struct mutex		stat_lock;
+
+	unsigned long		count_hdl[XDMA_COUNT_NUM];
 };
+
+static int xdma_enable_count(unsigned long debug_hdl, bool enable)
+{
+	struct xdma_hw_count *count_info = XOCL_DEBUG_ARG(debug_hdl);
+	struct xocl_xdma *xdma;
+	int ret;
+
+	xdma = platform_get_drvdata(to_platform_device(XOCL_DEBUG_DEV(debug_hdl)));
+	ret = xdma_enable_perf_counts(xdma->dma_handle, count_info->write,
+				      count_info->channel, enable);
+	return ret;
+}
+
+static void xdma_unreg_perf_counters(struct platform_device *pdev)
+{
+	struct xocl_xdma *xdma;
+	int i;
+
+	xdma = platform_get_drvdata(pdev);
+
+	for (i = 0; i < ARRAY_SIZE(hw_counts); i++)
+		xocl_debug_unreg(xdma->count_hdl[i]);
+}
+
+static int xdma_reg_perf_counters(struct platform_device *pdev)
+{
+	struct xocl_dbg_reg reg = { 0 };
+	struct xocl_xdma *xdma;
+	int ret = 0, i;
+
+	xdma = platform_get_drvdata(pdev);
+	for (i = 0; i < ARRAY_SIZE(hw_counts); i++) {
+		reg.name = hw_counts[i].name;
+		reg.dev = &pdev->dev;
+		xdma_get_count_addr(xdma->dma_handle, hw_counts[i].write,
+				    hw_counts[i].channel, hw_counts[i].type,
+				    &reg.count_addr_hi, &reg.count_addr_lo);
+		reg.enable_cb = xdma_enable_count;
+		reg.arg = &hw_counts[i];
+
+		ret = xocl_debug_register(&reg);
+		if (ret)
+			goto done;
+		xdma->count_hdl[i] = reg.hdl;
+	}
+
+done:
+	if (ret) {
+		for(i--; i >= 0; i--)
+			xocl_debug_unreg(xdma->count_hdl[i]);
+	}
+
+	return ret;
+}
 
 static ssize_t xdma_migrate_bo(struct platform_device *pdev,
 	struct sg_table *sgt, u32 dir, u64 paddr, u32 channel, u64 len)

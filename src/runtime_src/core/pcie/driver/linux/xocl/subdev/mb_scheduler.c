@@ -137,7 +137,6 @@ static int validate(struct platform_device *pdev, struct client_ctx *client,
 		    const struct drm_xocl_bo *bo);
 static bool exec_is_flush(struct exec_core *exec);
 static void exec_ert_clear_csr(struct exec_core *exec);
-static unsigned long exec_get_dbg_hdl(struct exec_core *exec);
 static void scheduler_wake_up(struct xocl_scheduler *xs);
 static void scheduler_intr(struct xocl_scheduler *xs);
 static void scheduler_decr_poll(struct xocl_scheduler *xs);
@@ -1851,12 +1850,6 @@ static inline struct xocl_dev *
 exec_get_xdev(struct exec_core *exec)
 {
 	return xocl_get_xdev(exec->pdev);
-}
-
-static inline unsigned long
-exec_get_dbg_hdl(struct exec_core *exec)
-{
-	return exec->dbg_hdl;
 }
 
 /**
@@ -5092,7 +5085,12 @@ static struct platform_driver	mb_scheduler_driver = {
 
 int __init xocl_init_mb_scheduler(void)
 {
-	xocl_debug_register(NULL, XOCL_DEVNAME(XOCL_MB_SCHEDULER), &debug_hdl);
+	struct xocl_dbg_reg reg = {
+		.name = XOCL_DEVNAME(XOCL_MB_SCHEDULER),
+	};
+
+	xocl_debug_register(&reg);
+	debug_hdl = reg.hdl;
 	return platform_driver_register(&mb_scheduler_driver);
 }
 

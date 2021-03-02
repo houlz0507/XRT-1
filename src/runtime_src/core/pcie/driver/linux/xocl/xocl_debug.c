@@ -31,6 +31,7 @@ module_param(xrt_debug_bufsize, int, (S_IRUGO|S_IWUSR));
 MODULE_PARM_DESC(xrt_debug_bufsize, "Debug buffer size");
 
 #define MAX_TRACE_MSG_LEN	512
+#define MAX_MOD_NAME		256
 
 #define XOCL_DFS_TRACE		"trace"
 #define XOCL_DFS_TRACE_MOD	"trace_modules"
@@ -39,21 +40,28 @@ MODULE_PARM_DESC(xrt_debug_bufsize, "Debug buffer size");
 enum {
 	XOCL_DFS_TYPE_TRACE,
 	XOCL_DFS_TYPE_COUNT,
-	XOCL_DFS_TYPE_IO_TRACK,
 };
 
 struct xrt_debug_mod {
+	/* do not move dev and arg */
+	struct device		*dev;
+	void			*arg;
+	int (*enable_cb)(unsigned long hdl, bool enable);
+
 	struct list_head	link;
 	bool			enabled;
-	struct device		*dev;
-	const char		*name;
+	char			name[MAX_MOD_NAME];
 	int			mod_type;
+	spinlock_t		lock;
 
 	/* counter */
+	ulong			count_addr_hi;
+	ulong			count_addr_lo;
+	u64			count_mask;
 	u64			start_ts;
-	u64			total_time;
+	bool			start_count;
+	u64			count_period;
 	u64			total_count;
-	bool			trace_count;
 };
 
 struct xocl_debug {
@@ -167,35 +175,44 @@ static ssize_t trace_mod_read(struct file *file, char __user *buf,
 {
 	struct xrt_debug_mod	*mod;
 	ssize_t count = 0;
-	loff_t offset = *ppos, len;
-	char temp[20];
+	loff_t offset = 0, len;
+	char *temp;
+
+	temp = vzalloc(MAX_TRACE_MSG_LEN);
+	if (!temp)
+		return -ENOMEM;
 
 	mutex_lock(&xrt_debug.mod_lock);
 	list_for_each_entry(mod, &xrt_debug.mod_list, link) {
-		sprintf(temp, "\tenabled: %d\n", mod->enabled);
-		len = strlen(mod->name) + strlen(temp);
-
-		if (offset >= len) {
-			offset -= len ;
+		if (offset < *ppos) {
+			offset++;
 			continue;
 		}
-		if (count + len > sz)
+
+		if (sz - count < MAX_TRACE_MSG_LEN)
 			break;
-		if (copy_to_user(buf + count, mod->name, strlen(mod->name)) != 0) {
-			count = -EFAULT;
-			goto out;
+
+		len = 0;
+		len += sprintf(temp, "%s\tenabled: %d", mod->name, mod->enabled);
+		if (mod->mod_type == XOCL_DFS_TYPE_COUNT) {
+			len += sprintf(temp + len, "\t %lld during %lld",
+					mod->total_count, mod->count_period);
 		}
-		count += strlen(mod->name);
+
+		len += sprintf(temp + len, "\n");
 		if (copy_to_user(buf + count, temp, strlen(temp)) != 0) {
 			count = -EFAULT;
-			goto out;
+			break;
 		}
-		count += strlen(temp);
-	}
-out:
-	mutex_unlock(&xrt_debug.mod_lock);
 
-	*ppos += count > 0 ? count : 0;
+		count += len;
+		offset++;
+	}
+
+	mutex_unlock(&xrt_debug.mod_lock);
+	vfree(temp);
+
+	*ppos = offset;
 
 	return count;
 }
@@ -208,6 +225,43 @@ static const struct file_operations trace_mod_fops = {
 static ssize_t trace_ctrl_write(struct file *filp, const char __user *data,
 		size_t data_len, loff_t *ppos)
 {
+	struct xrt_debug_mod *mod = NULL, *_mod;
+	ssize_t count = 0;
+	char name[MAX_MOD_NAME];
+
+	if (data_len > MAX_MOD_NAME)
+		return -EINVAL;
+
+	if (copy_from_user(name, data, data_len))
+		return -EFAULT;
+
+	mutex_lock(&xrt_debug.mod_lock);
+	list_for_each_entry(_mod, &xrt_debug.mod_list, link) {
+		if (strncmp(_mod->name, name, MAX_MOD_NAME))
+			continue;
+
+		if (mod) {
+			mutex_lock(&xrt_debug.mod_lock);
+			return -EINVAL;
+		}
+
+		mod = _mod;
+	}
+
+	if (mod->enable_cb && mod->enable_cb(mod, !mod->enabled)) {
+		mutex_lock(&xrt_debug.mod_lock);
+		return -EIO;
+	}
+
+	mod->enabled = !mod->enabled;
+
+	if (mod->enabled && mod->mod_type == XOCL_DFS_TYPE_COUNT) {
+		mod->total_count = 0;
+		mod->count_period = 0;
+	}
+
+	mutex_lock(&xrt_debug.mod_lock);
+
 	return 0;
 }
 
@@ -286,25 +340,17 @@ int xocl_debug_unreg(unsigned long hdl)
 	return ret;
 }
 
-int xocl_debug_register(struct device *dev, const char *name, unsigned long *hdl)
+int xocl_debug_register(struct xocl_dbg_reg *reg)
 {
-	struct xrt_debug_mod	*mod;
+	struct xrt_debug_mod *mod, *tmp_mod;
 	int ret = 0;
 
-	*hdl = 0;
-	mutex_lock(&xrt_debug.mod_lock);
-	name = name ? name : dev_name(dev);
-	if (!name) {
+	reg->hdl = 0;
+		
+	if (!reg->name) {
 		pr_err("invalid arguments");
 		ret = -EINVAL;
 		goto out;
-	}
-	list_for_each_entry(mod, &xrt_debug.mod_list, link) {
-		if (!strncmp(mod->name, name, strlen(mod->name) + 1)) {
-			xocl_err(dev, "already registed");
-			ret = -EEXIST;
-			goto out;
-		}
 	}
 
 	mod = kzalloc(sizeof(*mod), GFP_KERNEL);
@@ -313,17 +359,55 @@ int xocl_debug_register(struct device *dev, const char *name, unsigned long *hdl
 		goto out;
 	}
 
-	mod->name = name;
-	mod->dev = dev;
-	if (xrt_debug_modules && strstr(xrt_debug_modules, name))
+	if (reg->dev) {
+		snprintf(mod->name, sizeof(mod->name), "%s@%s",
+			 reg->name, dev_name(PDEV(reg->dev)));
+	} else {
+		strncpy(mod->name, reg->name, sizeof(mod->name) - 1);
+	}
+
+	mutex_lock(&xrt_debug.mod_lock);
+	list_for_each_entry(tmp_mod, &xrt_debug.mod_list, link) {
+		if (!strncmp(tmp_mod->name, mod->name, sizeof(mod->name))) {
+			pr_err("already registed");
+			ret = -EEXIST;
+			goto out;
+		}
+	}
+
+	mod->dev = reg->dev;
+	mod->enable_cb = reg->enable_cb;
+	mod->arg = reg->arg;
+	mod->count_addr_hi = reg->count_addr_hi;
+	mod->count_addr_lo = reg->count_addr_lo;
+	mod->count_mask = reg->count_mask;
+	if (xrt_debug_modules && strstr(xrt_debug_modules, mod->name))
 		mod->enabled = true;
+	if (mod->count_mask)
+		mod->mod_type = XOCL_DFS_TYPE_COUNT;
+	spin_lock_init(&mod->lock);
 
 	list_add(&mod->link, &xrt_debug.mod_list);
-	*hdl = (unsigned long)mod;
+	reg->hdl = (unsigned long)mod;
 out:
 	mutex_unlock(&xrt_debug.mod_lock);
 
 	return ret;
+}
+
+void xocl_dbg_count_start(unsigned long hdl)
+{
+	struct xrt_debug_mod *mod = (struct xrt_debug_mod *)hdl;
+
+	if (!mod->enabled)
+		return;
+
+
+}
+
+void xocl_dbg_count_stop(unsigned long hdl)
+{
+	struct xrt_debug_mod *mod = (struct xrt_debug_mod *)hdl;
 }
 
 void xocl_dbg_trace(unsigned long hdl, const char *fmt, ...)

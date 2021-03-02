@@ -198,6 +198,14 @@ int xdma_get_bypassio(void *dev_hndl, u64 *len, u32 *bar_idx);
 //xdma_get_channle_state - if no interrupt on DMA hang is available
 //xdma_channle_restart
 
+enum {
+	XDMA_COUNT_CLOCK_CYCLE = 1,
+	XDMA_COUNT_DATA_CYCLE,
+};
+int xdma_enable_perf_counts(void *dev_hndl, bool write, int channel, bool enable);
+int xdma_get_count_addr(void *dev_hndl, bool write, int channel, int type,
+			unsigned long *addr_hi, unsigned long *addr_lo);
+
 #endif
 
 

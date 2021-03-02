@@ -2120,9 +2120,23 @@ int xocl_fdt_unblock_ip(xdev_handle_t xdev_hdl, void *blob);
 const char *xocl_fdt_get_ert_fw_ver(xdev_handle_t xdev_hdl, void *blob);
 
 /* debug functions */
+struct xocl_dbg_reg {
+	const char	*name;
+	struct device	*dev;
+	void		*arg;
+	int (*enable_cb)(unsigned long hdl, bool enable);
+
+	unsigned long	count_addr_hi;
+	unsigned long	count_addr_lo;
+	u64		count_mask;
+
+	unsigned long	hdl; /* output arg: debug mod hdl */
+};
+#define XOCL_DEBUG_DEV(hdl)	((void *)((ulong *)(hdl))[0])
+#define XOCL_DEBUG_ARG(hdl)	((void *)((ulong *)(hdl))[1])
 int xocl_debug_init(void);
 void xocl_debug_fini(void);
-int xocl_debug_register(struct device *dev, const char *name, unsigned long *hdl);
+int xocl_debug_register(struct xocl_dbg_reg *reg);
 int xocl_debug_unreg(unsigned long hdl);
 void xocl_dbg_trace(unsigned long hdl, const char *fmt, ...);
 

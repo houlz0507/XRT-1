@@ -287,7 +287,7 @@ void enable_perf(struct xdma_engine *engine)
 			(unsigned long)(&engine->regs->perf_ctrl) -
 			(unsigned long)(&engine->regs));
 	read_register(&engine->regs->identifier);
-	w = XDMA_PERF_AUTO | XDMA_PERF_RUN;
+	w = XDMA_PERF_RUN;
 	write_register(w, &engine->regs->perf_ctrl,
 			(unsigned long)(&engine->regs->perf_ctrl) -
 			(unsigned long)(&engine->regs));
@@ -295,6 +295,58 @@ void enable_perf(struct xdma_engine *engine)
 
 	dbg_perf("IOCTL_XDMA_PERF_START\n");
 
+}
+
+int xdma_enable_perf_counts(void *dev_hndl, bool write, int channel, bool enable)
+{
+	struct xdma_dev *xdev = (struct xdma_dev *)dev_hndl;
+	struct xdma_engine *engine;
+	u32 w;
+
+	engine = write ? &xdev->engine_h2c[channel] :
+		&xdev->engine_c2h[channel];
+	if (!enable)
+		return -EINVAL;
+
+	if (enable) {
+		enable_perf(engine);
+		return 0;
+	}
+
+	w = XDMA_PERF_CLEAR;
+	write_register(w, &engine->regs->perf_ctrl,
+			(unsigned long)(&engine->regs->perf_ctrl) -
+			(unsigned long)(&engine->regs));
+	read_register(&engine->regs->identifier);
+
+	return 0;
+}
+
+int xdma_get_count_addr(void *dev_hndl, bool write, int channel, int type,
+			unsigned long *addr_hi, unsigned long *addr_lo)
+{
+	struct xdma_dev *xdev = (struct xdma_dev *)dev_hndl;
+	struct xdma_engine *engine;
+
+	engine = write ? &xdev->engine_h2c[channel] :
+		&xdev->engine_c2h[channel];
+	if (!engine)
+		return -EINVAL;
+
+	switch (type) {
+	case XDMA_COUNT_CLOCK_CYCLE:
+		*addr_hi = (unsigned long)&engine->regs->perf_cyc_hi;
+		*addr_lo = (unsigned long)&engine->regs->perf_cyc_lo;
+		break;
+	case XDMA_COUNT_DATA_CYCLE:
+		*addr_hi = (unsigned long)&engine->regs->perf_dat_hi;
+		*addr_lo = (unsigned long)&engine->regs->perf_dat_lo;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
 }
 
 void get_perf_stats(struct xdma_engine *engine)
