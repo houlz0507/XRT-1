@@ -398,10 +398,12 @@ out:
 void xocl_dbg_count_start(unsigned long hdl)
 {
 	struct xrt_debug_mod *mod = (struct xrt_debug_mod *)hdl;
+	unsigned long flags;
 
 	if (!mod->enabled)
 		return;
 
+	spin_lock_irqsave(mod->lock, flags);
 
 }
 
